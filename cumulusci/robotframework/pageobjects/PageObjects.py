@@ -4,8 +4,8 @@ from cumulusci.robotframework.pageobjects.baseobjects import BasePage
 from cumulusci.robotframework.utils import capture_screenshot_on_error
 import inspect
 import robot.utils
-import os
 import sys
+from pathlib import Path
 
 
 def get_keyword_names(obj):
@@ -79,11 +79,19 @@ class PageObjects(object):
         importer = robot.utils.Importer()
 
         for file_path in args:
-            try:
-                importer.import_class_or_module_by_path(os.path.abspath(file_path))
-                logger.debug("imported page object {}".format(file_path))
-            except Exception as e:
-                logger.warn(str(e))
+            path = self._find_file_in_pythonpath(file_path)
+            if path:
+                try:
+                    importer.import_class_or_module_by_path(str(path.resolve()))
+                    logger.debug(f"imported page object from {path}")
+                except Exception as e:
+                    raise ImportError(
+                        f"Unable to import page object '{file_path}': ({e})", path=path
+                    )
+
+            else:
+                raise ImportError(f"Unable to find page object file '{file_path}'")
+
         self.current_page_object = None
 
         # Start with this library at the front of the library search order;
@@ -95,6 +103,13 @@ class PageObjects(object):
             # via the robot_libdoc task, in which case we don't care
             # whether this throws an error or not.
             pass
+
+    def _find_file_in_pythonpath(self, filename):
+        for directory in sys.path:
+            path = Path(directory) / filename
+            if path.exists():
+                return path
+        return None
 
     @classmethod
     def _reset(cls):
@@ -131,7 +146,7 @@ class PageObjects(object):
 
     def log_page_object_keywords(self):
         """Logs page objects and their keywords for all page objects
-           which have been imported into the current suite.
+        which have been imported into the current suite.
         """
         for key in sorted(self.registry.keys()):
             pobj = self.registry[key]
@@ -154,6 +169,7 @@ class PageObjects(object):
 
         if (page_type, object_name) in self.registry:
             cls = self.registry[(page_type, object_name)]
+            logger.debug(f"using page object class {cls}")
             instance = cls()
             instance._libname = instance.__class__.__name__
 
@@ -271,22 +287,16 @@ class PageObjects(object):
     def wait_for_modal(self, page_type, object_name, expected_heading=None, **kwargs):
         """Wait for the given page object modal to appear.
 
-        This will both wait for the modal, and verify that the modal
-        has an expected heading. By default the expected heading will
-        be the page object type (eg "New") and object name (eg:
-        "Contact") separated by a space (eg: "New Contact").
-
-        You can override the expected heading with the expected_heading
-        parameter.
+        This will wait for modal to appear. If an expected heading
+        is provided, it will also validate that the modal has the
+        expected heading.
 
         Example:
 
-        | Wait for modal to appear    New    Contact
+        | Wait for modal to appear    New    Contact   expected_heading=New Contact
 
         """
         pobj = self.get_page_object(page_type, object_name)
-        if not expected_heading:
-            expected_heading = f"{pobj._page_type} {pobj._object_name}"
         pobj._wait_to_appear(expected_heading=expected_heading)
         self._set_current_page_object(pobj)
         # Ideally we would wait for something, but I can't figure out

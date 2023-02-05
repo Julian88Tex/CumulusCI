@@ -5,9 +5,10 @@ import tempfile
 import pytest
 import os.path
 import re
+import sys
 from xml.etree import ElementTree as ET
 
-from cumulusci.core.config import TaskConfig
+from cumulusci.core.config import TaskConfig, UniversalConfig, BaseProjectConfig
 from cumulusci.core.exceptions import RobotTestFailure, TaskOptionsError
 from cumulusci.core.tests.utils import MockLoggerMixin
 from cumulusci.tasks.robotframework import Robot
@@ -16,7 +17,8 @@ from cumulusci.tasks.robotframework import RobotTestDoc
 from cumulusci.tasks.salesforce.tests.util import create_task
 from cumulusci.tasks.robotframework.debugger import DebugListener
 from cumulusci.tasks.robotframework.robotframework import KeywordLogger
-from cumulusci.utils import touch
+from cumulusci.utils import touch, temporary_dir
+
 
 from cumulusci.tasks.robotframework.libdoc import KeywordFile
 
@@ -80,8 +82,62 @@ class TestRobot(unittest.TestCase):
                 "vars": "uno, dos, tres",
             },
         )
-        for option in ("test", "include", "exclude", "vars"):
+        for option in ("test", "include", "exclude", "vars", "suites"):
             assert isinstance(task.options[option], list)
+
+    def test_process_arg_requires_int(self):
+        """Verify we throw a useful error for non-int "processes" option"""
+
+        expected = "Please specify an integer for the `processes` option."
+        with pytest.raises(TaskOptionsError, match=expected):
+            create_task(Robot, {"suites": "tests", "processes": "bogus"})
+
+    @mock.patch("cumulusci.tasks.robotframework.robotframework.robot_run")
+    @mock.patch("cumulusci.tasks.robotframework.robotframework.subprocess.run")
+    def test_process_arg_gt_zero(self, mock_subprocess_run, mock_robot_run):
+        """Verify that setting the process option to a number > 1 runs pabot"""
+        mock_subprocess_run.return_value = mock.Mock(returncode=0)
+        task = create_task(Robot, {"suites": "tests", "processes": "2"})
+        task()
+        expected_cmd = [
+            sys.executable,
+            "-m",
+            "pabot.pabot",
+            "--pabotlib",
+            "--processes",
+            "2",
+            "--pythonpath",
+            task.project_config.repo_root,
+            "--variable",
+            "org:test",
+            "--outputdir",
+            ".",
+            "tests",
+        ]
+        mock_robot_run.assert_not_called()
+        mock_subprocess_run.assert_called_once_with(expected_cmd)
+
+    @mock.patch("cumulusci.tasks.robotframework.robotframework.robot_run")
+    @mock.patch("cumulusci.tasks.robotframework.robotframework.subprocess.run")
+    def test_process_arg_eq_zero(self, mock_subprocess_run, mock_robot_run):
+        """Verify that setting the process option to 1 runs robot rather than pabot"""
+        mock_robot_run.return_value = 0
+        task = create_task(Robot, {"suites": "tests", "process": 0})
+        task()
+        mock_subprocess_run.assert_not_called()
+        mock_robot_run.assert_called_once_with(
+            "tests", listener=[], outputdir=".", variable=["org:test"]
+        )
+
+    @mock.patch("cumulusci.tasks.robotframework.robotframework.robot_run")
+    def test_suites(self, mock_robot_run):
+        """Verify that passing a list of suites is handled properly"""
+        mock_robot_run.return_value = 0
+        task = create_task(Robot, {"suites": "tests,more_tests", "process": 0})
+        task()
+        mock_robot_run.assert_called_once_with(
+            "tests", "more_tests", listener=[], outputdir=".", variable=["org:test"]
+        )
 
     def test_default_listeners(self):
         # first, verify that not specifying any listener options
@@ -152,6 +208,108 @@ class TestRobot(unittest.TestCase):
         self.assertIn("FakeListener.py", task.options["options"]["listener"])
         self.assertIn(DebugListener, listener_classes)
         self.assertIn(KeywordLogger, listener_classes)
+
+    @mock.patch("cumulusci.tasks.robotframework.robotframework.robot_run")
+    @mock.patch(
+        "cumulusci.tasks.robotframework.robotframework.pythonpathsetter.add_path"
+    )
+    def test_sources(self, mock_add_path, mock_robot_run):
+        """Verify that sources get added to PYTHONPATH when task runs"""
+        universal_config = UniversalConfig()
+        project_config = BaseProjectConfig(
+            universal_config,
+            {
+                "sources": {
+                    "test1": {"path": "dummy1"},
+                    "test2": {"path": "dummy2"},
+                }
+            },
+        )
+        # get_namespace returns a config. The only part of the config
+        # that the code uses is the repo_root property, so we don't need
+        # a full blown config.
+        project_config.get_namespace = mock.Mock(
+            side_effect=lambda source: mock.Mock(
+                repo_root=project_config.sources[source]["path"]
+            )
+        )
+
+        task = create_task(
+            Robot,
+            {"suites": "test", "sources": ["test1", "test2"]},
+            project_config=project_config,
+        )
+
+        mock_robot_run.return_value = 0
+        self.assertNotIn("dummy1", sys.path)
+        self.assertNotIn("dummy2", sys.path)
+        task()
+        project_config.get_namespace.assert_has_calls(
+            [mock.call("test1"), mock.call("test2")]
+        )
+        mock_add_path.assert_has_calls(
+            [mock.call("dummy1", end=True), mock.call("dummy2", end=True)]
+        )
+        self.assertNotIn("dummy1", sys.path)
+        self.assertNotIn("dummy2", sys.path)
+        self.assertEquals(".", task.return_values["robot_outputdir"])
+
+    @mock.patch("cumulusci.tasks.robotframework.robotframework.robot_run")
+    @mock.patch(
+        "cumulusci.tasks.robotframework.robotframework.pythonpathsetter.add_path"
+    )
+    def test_repo_root_in_sys_path(self, mock_add_path, mock_robot_run):
+        """Verify that the repo root is added to sys.path
+
+        Normally, the repo root is added to sys.path in the __init__
+        of BaseSalesforceTask. However, if we're running a task from
+        another repo, the git root of that other repo isn't added. The
+        robot task will do that; this verifies that.
+
+        """
+        mock_robot_run.return_value = 0
+        universal_config = UniversalConfig()
+        project_config = BaseProjectConfig(universal_config)
+        with temporary_dir() as d:
+            project_config.repo_info["root"] = d
+            task = create_task(
+                Robot, {"suites": "tests"}, project_config=project_config
+            )
+            self.assertNotIn(d, sys.path)
+            task()
+            mock_add_path.assert_called_once_with(d)
+            self.assertNotIn(d, sys.path)
+
+    @mock.patch("cumulusci.tasks.robotframework.robotframework.robot_run")
+    def test_sources_not_found(self, mock_robot_run):
+        task = create_task(
+            Robot,
+            {"suites": "test", "sources": ["bogus"]},
+        )
+
+        expected = "robot source 'bogus' could not be found"
+        with pytest.raises(TaskOptionsError, match=expected):
+            task()
+
+
+@mock.patch("cumulusci.tasks.robotframework.robotframework.robot_run")
+def test_outputdir_return_value(mock_run, tmpdir):
+    """Ensure that the task properly sets the outputdir return value"""
+    project_config = BaseProjectConfig(UniversalConfig())
+
+    test_dir = "test-dir"
+    tmpdir.mkdir(test_dir)
+    task = create_task(
+        Robot,
+        {
+            "suites": "test",
+            "options": {"outputdir": test_dir},
+        },
+        project_config=project_config,
+    )
+    mock_run.return_value = 0
+    task()
+    assert test_dir == task.return_values["robot_outputdir"]
 
 
 class TestRobotTestDoc(unittest.TestCase):

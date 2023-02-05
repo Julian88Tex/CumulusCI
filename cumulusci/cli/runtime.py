@@ -29,7 +29,7 @@ class CliRuntime(BaseCumulusCI):
         default_keychain_class = (
             self.project_config.cumulusci__keychain
             if self.project_config is not None
-            else self.global_config.cumulusci__keychain
+            else self.universal_config.cumulusci__keychain
         )
         keychain_class = os.environ.get(
             "CUMULUSCI_KEYCHAIN_CLASS", default_keychain_class
@@ -141,6 +141,20 @@ class CliRuntime(BaseCumulusCI):
                         f"This project requires CumulusCI version {min_cci_version} or later. "
                         f"To upgrade, please run this command: {get_cci_upgrade_command()}"
                     )
+
+    def get_available_tasks(self):
+        return (
+            self.project_config.list_tasks()
+            if self.project_config is not None
+            else self.universal_config.list_tasks()
+        )
+
+    def get_available_flows(self):
+        return (
+            self.project_config.list_flows()
+            if self.project_config is not None
+            else self.universal_config.list_flows()
+        )
 
 
 # for backwards-compatibility

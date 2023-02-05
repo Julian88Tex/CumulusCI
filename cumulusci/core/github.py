@@ -8,8 +8,10 @@ import github3
 from github3 import GitHub
 from github3 import login
 from github3.pulls import ShortPullRequest
+from github3.session import GitHubSession
 
 from cumulusci.core.exceptions import GithubException
+from cumulusci.utils.http.requests_utils import safe_json_from_response
 
 
 # Prepare request retry policy to be attached to github sessions.
@@ -33,8 +35,11 @@ def get_github_api(username=None, password=None):
 INSTALLATIONS = {}
 
 
-def get_github_api_for_repo(keychain, owner, repo):
-    gh = GitHub()
+def get_github_api_for_repo(keychain, owner, repo, session=None):
+    gh = GitHub(
+        session=session
+        or GitHubSession(default_read_timeout=30, default_connect_timeout=30)
+    )
     # Apply retry policy
     gh.session.mount("http://", adapter)
     gh.session.mount("https://", adapter)
@@ -59,14 +64,15 @@ def get_github_api_for_repo(keychain, owner, repo):
         gh.login(token=GITHUB_TOKEN)
     else:
         github_config = keychain.get_service("github")
-        gh.login(github_config.username, github_config.password)
+        token = github_config.password or github_config.token
+        gh.login(github_config.username, token)
     return gh
 
 
 def validate_service(options):
     username = options["username"]
-    password = options["password"]
-    gh = get_github_api(username, password)
+    token = options["token"]
+    gh = get_github_api(username, token)
     try:
         gh.rate_limit()
     except Exception as e:
@@ -90,7 +96,7 @@ def get_pull_requests_by_head(repo, branch_name):
 
 def create_pull_request(repo, branch_name, base=None, title=None):
     """Creates a pull request for the given branch"""
-    base = base or "master"
+    base = base or repo.default_branch
     title = title or "Auto-Generated Pull Request"
     pull_request = repo.create_pull(title, base, branch_name)
     return pull_request
@@ -121,7 +127,7 @@ def get_pull_requests_by_commit(github, repo, commit_sha):
     response = github.session.get(
         endpoint, headers={"Accept": "application/vnd.github.groot-preview+json"}
     )
-    json_list = response.json()
+    json_list = safe_json_from_response(response)
 
     # raises github3.exceptions.IncompleteResposne
     # when these are not present
