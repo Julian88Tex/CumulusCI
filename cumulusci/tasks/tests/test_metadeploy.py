@@ -61,8 +61,6 @@ class TestBaseMetaDeployTask(unittest.TestCase):
 
 
 class TestPublish(unittest.TestCase, GithubApiTestMixin):
-    maxDiff = None
-
     @responses.activate
     def test_run_task(self):
         project_config = create_project_config()
@@ -88,7 +86,7 @@ class TestPublish(unittest.TestCase, GithubApiTestMixin):
         project_config.keychain.set_service(
             "github",
             ServiceConfig(
-                {"username": "foo", "token": "bar", "email": "foo@example.com"}
+                {"username": "foo", "password": "bar", "email": "foo@example.com"}
             ),
         )
 
@@ -111,7 +109,6 @@ class TestPublish(unittest.TestCase, GithubApiTestMixin):
             json=self._get_expected_repo("TestOwner", "TestRepo"),
         )
         responses.add("PATCH", "https://metadeploy/translations/es", json={})
-        responses.add("PATCH", "https://metadeploy/translations/es-bogus", status=404)
         responses.add(
             "GET",
             "https://api.github.com/repos/TestOwner/TestRepo/git/refs/tags/release/1.0",
@@ -175,8 +172,6 @@ class TestPublish(unittest.TestCase, GithubApiTestMixin):
         en_labels_path.write_text('{"test": {"title": {}}}')
         es_labels_path = Path(labels_path, "labels_es.json")
         es_labels_path.write_text('{"test": {"title": {}}}')
-        bogus_labels_path = Path(labels_path, "labels_es-bogus.json")
-        bogus_labels_path.write_text('{"test": {"title": {}}}')
 
         task_config = TaskConfig(
             {
@@ -205,10 +200,9 @@ class TestPublish(unittest.TestCase, GithubApiTestMixin):
                         "options": {
                             "activateRSS": True,
                             "namespace": "ns",
-                            "retries": 10,
+                            "retries": 5,
                             "retry_interval": 5,
                             "retry_interval_add": 30,
-                            "security_type": "FULL",
                             "version": "1.0",
                         },
                         "checks": [],
@@ -224,6 +218,8 @@ class TestPublish(unittest.TestCase, GithubApiTestMixin):
                     "task_class": "cumulusci.tasks.salesforce.ProfileGrantAllAccess",
                     "task_config": {
                         "options": {
+                            "managed": True,
+                            "namespaced_org": False,
                             "namespace_inject": "ns",
                             "include_packaged_objects": False,
                         },

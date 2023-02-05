@@ -46,11 +46,6 @@ class BaseEncryptedProjectKeychain(BaseProjectKeychain):
         self.services[service] = encrypted
 
     def _set_org(self, org_config, global_org):
-        if org_config.keychain:
-            assert org_config.keychain is self
-        assert org_config.global_org == global_org
-        org_config.keychain = self
-        org_config.global_org = global_org
         encrypted = self._encrypt_config(org_config)
         self._set_encrypted_org(org_config.name, encrypted, global_org)
 
@@ -59,10 +54,7 @@ class BaseEncryptedProjectKeychain(BaseProjectKeychain):
 
     def _get_org(self, name):
         return self._decrypt_config(
-            OrgConfig,
-            self.orgs[name],
-            extra=[name, self],
-            context=f"org config ({name})",
+            OrgConfig, self.orgs[name], extra=[name], context=f"org config ({name})"
         )
 
     def _get_cipher(self, iv=None):

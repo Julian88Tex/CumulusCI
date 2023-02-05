@@ -10,8 +10,6 @@ file.
 """
 
 import re
-from SeleniumLibrary.errors import ElementNotFound
-from selenium.common.exceptions import NoSuchElementException
 from cumulusci.robotframework.pageobjects import pageobject
 from cumulusci.robotframework.pageobjects import BasePage
 from cumulusci.robotframework.utils import capture_screenshot_on_error
@@ -77,7 +75,12 @@ class ModalMixin:
     def click_modal_button(self, button_label):
         """Click the named modal button (Save, Save & New, Cancel, etc)"""
         # stolen from Salesforce.py:click_modal_button
-        locator = f"sf:modal.button:{button_label}"
+        locator = (
+            "//div[contains(@class,'uiModal')]"
+            "//div[contains(@class,'modal-footer') or contains(@class, 'actionsContainer')]"
+            "//button[.//span[text()='{}']]"
+        ).format(button_label)
+
         self.selenium.wait_until_page_contains_element(locator)
         self.selenium.wait_until_element_is_enabled(locator)
         self.salesforce._jsclick(locator)
@@ -96,23 +99,6 @@ class ModalMixin:
             self.selenium.page_should_contain_element(
                 locator,
                 'The page did not contain an error with the text "{}"'.format(message),
-            )
-
-    @capture_screenshot_on_error
-    def modal_should_show_edit_error_for_fields(self, *field_names):
-        """Verify that a dialog is showing requiring a review of the given fields
-
-        This works by looking for a the "we hit a snag" popup, and
-        then looking for an anchor tag with the attribute
-        force-recordediterror_recordediterror, along with the given
-        text.
-
-        """
-        self.selenium.wait_until_page_contains_element("sf:modal.field_alert")
-        for field_name in field_names:
-            locator = f"sf:modal.review_alert:{field_name}"
-            self.selenium.page_should_contain_element(
-                locator, f"Unable to find alert with field '{field_name}'"
             )
 
     @capture_screenshot_on_error
@@ -151,54 +137,6 @@ class ModalMixin:
         self.salesforce.populate_form(*args, **kwargs)
 
     @capture_screenshot_on_error
-    def select_dropdown_value(self, label, value):
-        """Sets the value of a dropdown form field from one of the values in the dropdown
-
-        ``label`` represents the label on the form field (eg: Lead Source)
-
-        If a modal is present, the modal will be searched for the dropdown. Otherwise
-        the first matching dropdown on the entire web page will be used.
-        """
-        input_element = self._get_form_element_for_label(label)
-        if input_element is None:
-            raise Exception(f"No form element found with the label '{label}'")
-
-        # SeleniumLibrary's scroll_element_into_view doesn't seem to work
-        # for elements in a scrollable div on Firefox. Javascript seems to
-        # work though.
-        self.selenium.driver.execute_script(
-            "arguments[0].scrollIntoView()", input_element
-        )
-
-        if input_element.get_attribute("role") == "combobox":
-            # new lightning combobox. So much easier!
-            self.builtin.log(f"New style combo for {label}", "DEBUG")
-            input_element.click()
-            try:
-                item = input_element.find_element_by_xpath(
-                    f'//lightning-base-combobox-item[.="{value}"]'
-                )
-                item.click()
-            except NoSuchElementException:
-                raise Exception(f"Dropdown value '{value}' not found")
-        else:
-            self.builtin.log(f"Old style combo for {label}", "DEBUG")
-            trigger = input_element.find_element_by_class_name("uiPopupTrigger")
-            trigger.click()
-
-            try:
-                popup_locator = "//div[contains(@class, 'uiPopupTarget')][contains(@class, 'visible')]"
-                popup = self.selenium.get_webelement(popup_locator)
-            except ElementNotFound:
-                raise ElementNotFound("Timed out waiting for the dropdown menu")
-
-            try:
-                value_element = popup.find_element_by_link_text(value)
-                value_element.click()
-            except NoSuchElementException:
-                raise Exception(f"Dropdown value '{value}' not found")
-
-    @capture_screenshot_on_error
     def wait_until_modal_is_closed(self, timeout=None):
         """Waits until the modal is no longer visible
 
@@ -207,52 +145,6 @@ class ModalMixin:
         locator = "//div[contains(@class, 'uiModal')]"
 
         self.selenium.wait_until_page_does_not_contain_element(locator)
-
-    def _get_form_element_for_label(self, label):
-        """Returns an element of class 'slds-form-element' which contains the given label.
-
-        If you use this to find an item on a modal, you're responsible for waiting for the
-        modal to appear before calling this function.
-        """
-        # search from the root of the document, unless a modal
-        # is open
-        root = self.selenium.driver.find_element_by_tag_name("body")
-        with self._no_implicit_wait():
-            # We don't want to wait, we just want to know if the
-            # modal is alredy there or not. The caller should have
-            # already waited for the modal.
-
-            # also, we use find_elements (plural) here because it will
-            # return an empty list rather than throwing an error
-            modals = root.find_elements_by_xpath("//div[contains(@class, 'uiModal')]")
-            # There should only ever be zero or one, but the Salesforce
-            # UI never ceases to surprise me.
-            modals = [m for m in modals if m.is_displayed()]
-            if modals:
-                root = modals[0]
-        try:
-            # As salesforce evolves, more and more fields use <label for='some-id'>
-            # where "for" points to the associated input field. w00t! If we can,
-            # use that. If not, fall back to an older strategy
-            try:
-                label_element = root.find_element_by_xpath(f'//label[text()="{label}"]')
-                input_id = label_element.get_attribute("for")
-                element = root.find_element_by_id(input_id)
-                return element
-
-            except NoSuchElementException:
-                pass
-
-            # gnarly, but effective.
-            # this finds an element with the class slds-form-element which
-            # has a child element with the class 'form-element__label' and
-            # text that matches the given label.
-            locator = f".//*[contains(@class, 'slds-form-element') and .//*[contains(@class, 'form-element__label')]/descendant-or-self::text()='{label}']"
-            element = root.find_element_by_xpath(locator)
-            return element
-
-        except NoSuchElementException:
-            raise ElementNotFound(f"Form element with label '{label}' was not found")
 
 
 @pageobject("New")
@@ -381,7 +273,7 @@ class DetailPage(BasePage):
         result, and the verify that the returned object id is part of the url.
         """
         if kwargs:
-            # do a lookup to get the object id
+            # do a lookup to get the object i
             object_id = self._get_object(**kwargs)["Id"]
             pattern = r"/lightning/r/{}/{}/view$".format(self.object_name, object_id)
         else:

@@ -75,8 +75,8 @@ class GenerateAndLoadData(BaseSalesforceApiTask):
         "replace_database": {
             "description": "Confirmation that it is okay to delete the data in database_url",
         },
-        "working_directory": {
-            "description": "Store temporary files in working_directory for easier debugging."
+        "debug_dir": {
+            "description": "Store temporary DB files in debug_dir for easier debugging."
         },
         **LoadData.task_options,
     }
@@ -108,7 +108,7 @@ class GenerateAndLoadData(BaseSalesforceApiTask):
         else:
             raise TaskOptionsError("No data generation task specified")
 
-        self.working_directory = self.options.get("working_directory", None)
+        self.debug_dir = self.options.get("debug_dir", None)
         self.database_url = self.options.get("database_url")
 
         if self.database_url:
@@ -124,10 +124,6 @@ class GenerateAndLoadData(BaseSalesforceApiTask):
 
     def _run_task(self):
         with TemporaryDirectory() as tempdir:
-            working_directory = self.options.get("working_directory")
-            if working_directory:
-                tempdir = Path(working_directory)
-                tempdir.mkdir(exist_ok=True)
             for current_batch_size, index in generate_batches(
                 self.num_records, self.batch_size
             ):
@@ -137,7 +133,7 @@ class GenerateAndLoadData(BaseSalesforceApiTask):
                 )
                 self._generate_batch(
                     self.database_url,
-                    self.working_directory or tempdir,
+                    self.debug_dir or tempdir,
                     self.mapping_file,
                     current_batch_size,
                     index,
@@ -181,14 +177,14 @@ class GenerateAndLoadData(BaseSalesforceApiTask):
         }
 
         # some generator tasks can generate the mapping file instead of reading it
-        if not subtask_options.get("mapping"):
+        with TemporaryDirectory() as tempdir:
             temp_mapping = Path(tempdir) / "temp_mapping.yml"
             mapping_file = self.options.get("generate_mapping_file", temp_mapping)
             subtask_options["generate_mapping_file"] = mapping_file
-        self._datagen(subtask_options)
-        if not subtask_options.get("mapping"):
-            subtask_options["mapping"] = mapping_file
-        self._dataload(subtask_options)
+            self._datagen(subtask_options)
+            if not subtask_options.get("mapping"):
+                subtask_options["mapping"] = mapping_file
+            self._dataload(subtask_options)
 
     def _setup_engine(self, database_url):
         """Set up the database engine"""

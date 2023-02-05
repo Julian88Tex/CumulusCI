@@ -4,7 +4,6 @@ import tempfile
 import pytest
 import os.path
 import textwrap
-from pathlib import Path
 
 from cumulusci.tasks.salesforce.tests.util import create_task
 from cumulusci.tests.util import create_project_config
@@ -20,12 +19,6 @@ class TestRobotLint(MockLoggerMixin, unittest.TestCase):
         self.task_config = TaskConfig()
         self._task_log_handler.reset()
         self.task_log = self._task_log_handler.messages
-
-        # define base_args, which are arguments that the task adds
-        # before any user-supplied arguments
-        here = Path(__file__).parent.parent
-        lint_defaults = str((here / "lint_defaults.txt").resolve())
-        self.base_args = ["--argumentfile", lint_defaults]
 
     def tearDown(self):
         shutil.rmtree(self.tmpdir)
@@ -103,24 +96,13 @@ class TestRobotLint(MockLoggerMixin, unittest.TestCase):
         with pytest.raises(CumulusCIFailure, match=expected):
             task()
 
-    def test_rule_defaults(self):
-        """Verify we pass the default rules to rflint"""
-
-        task = create_task(RobotLint, {"path": self.tmpdir})
-        self.assertEqual(task._get_args(), self.base_args)
-
     def test_configure_option(self):
         """Verify that rule configuration options are passed to rflint"""
         task = create_task(
             RobotLint,
             {"path": self.tmpdir, "configure": "LineTooLong:40,FileTooLong:123"},
         )
-        expected = self.base_args + [
-            "--configure",
-            "LineTooLong:40",
-            "--configure",
-            "FileTooLong:123",
-        ]
+        expected = ["--configure", "LineTooLong:40", "--configure", "FileTooLong:123"]
         self.assertEqual(task._get_args(), expected)
 
     def test_error_option(self):
@@ -128,7 +110,7 @@ class TestRobotLint(MockLoggerMixin, unittest.TestCase):
         task = create_task(
             RobotLint, {"path": self.tmpdir, "error": "LineTooLong,FileTooLong"}
         )
-        expected = self.base_args + ["--error", "LineTooLong", "--error", "FileTooLong"]
+        expected = ["--error", "LineTooLong", "--error", "FileTooLong"]
         self.assertEqual(task._get_args(), expected)
 
     def test_ignore_option(self):
@@ -137,12 +119,7 @@ class TestRobotLint(MockLoggerMixin, unittest.TestCase):
             RobotLint,
             {"path": self.tmpdir, "ignore": "TooFewKeywordSteps,TooFewTestSteps"},
         )
-        expected = self.base_args + [
-            "--ignore",
-            "TooFewKeywordSteps",
-            "--ignore",
-            "TooFewTestSteps",
-        ]
+        expected = ["--ignore", "TooFewKeywordSteps", "--ignore", "TooFewTestSteps"]
         self.assertEqual(task._get_args(), expected)
 
     def test_warning_option(self):
@@ -151,7 +128,7 @@ class TestRobotLint(MockLoggerMixin, unittest.TestCase):
             RobotLint,
             {"path": self.tmpdir, "warning": "TrailingBlankLines, TrailingWhitespace"},
         )
-        expected = self.base_args + [
+        expected = [
             "--warning",
             "TrailingBlankLines",
             "--warning",

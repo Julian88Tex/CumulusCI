@@ -12,7 +12,7 @@ from simple_salesforce import SalesforceGeneralError
 
 
 from cumulusci.core.config import (
-    UniversalConfig,
+    BaseGlobalConfig,
     BaseProjectConfig,
     OrgConfig,
     TaskConfig,
@@ -38,10 +38,8 @@ from cumulusci.core.tests.utils import MockLoggerMixin
 )
 class TestRunApexTests(MockLoggerMixin, unittest.TestCase):
     def setUp(self):
-        self._task_log_handler.reset()
-        self.task_log = self._task_log_handler.messages
         self.api_version = 38.0
-        self.universal_config = UniversalConfig(
+        self.global_config = BaseGlobalConfig(
             {"project": {"api_version": self.api_version}}
         )
         self.task_config = TaskConfig()
@@ -51,7 +49,7 @@ class TestRunApexTests(MockLoggerMixin, unittest.TestCase):
             "test_name_match": "%_TEST",
         }
         self.project_config = BaseProjectConfig(
-            self.universal_config, config={"noyaml": True}
+            self.global_config, config={"noyaml": True}
         )
         self.project_config.config["project"] = {
             "package": {"api_version": self.api_version}
@@ -74,9 +72,9 @@ class TestRunApexTests(MockLoggerMixin, unittest.TestCase):
         namespace_param = "null" if namespace is None else f"%27{namespace}%27"
         url = (
             self.base_tooling_url
-            + "query/?q=SELECT+Id%2C+Name+"
+            + f"query/?q=SELECT+Id%2C+Name+"
             + f"FROM+ApexClass+WHERE+NamespacePrefix+%3D+{namespace_param}"
-            + "+AND+%28Name+LIKE+%27%25_TEST%27%29"
+            + f"+AND+%28Name+LIKE+%27%25_TEST%27%29"
         )
         expected_response = {
             "done": True,
@@ -471,40 +469,6 @@ class TestRunApexTests(MockLoggerMixin, unittest.TestCase):
         assert "Completed: 0  Processing: 1 (TestClass_TEST)  Queued: 0" in log["info"]
 
     @responses.activate
-    def test_run_task__not_verbose(self):
-        self._mock_apex_class_query()
-        self._mock_run_tests()
-        self._mock_tests_processing()
-        self._mock_get_failed_test_classes()  # this returns all passes
-        self._mock_tests_complete()
-        self._mock_get_test_results()
-        task = RunApexTests(self.project_config, self.task_config, self.org_config)
-        task()
-        log = self._task_log_handler.messages
-        assert "Class: TestClass_TEST" not in log["info"]
-
-    @responses.activate
-    def test_run_task__verbose(self):
-        self._mock_apex_class_query()
-        self._mock_run_tests()
-        self._mock_get_failed_test_classes_failure()
-        self._mock_tests_complete()
-        self._mock_get_test_results()
-        self._mock_get_symboltable()
-        task_config = TaskConfig()
-        task_config.config["options"] = {
-            "verbose": True,
-            "junit_output": "results_junit.xml",
-            "poll_interval": 1,
-            "test_name_match": "%_TEST",
-        }
-        task = RunApexTests(self.project_config, task_config, self.org_config)
-        with self.assertRaises(CumulusCIException):
-            task()
-        log = self._task_log_handler.messages
-        assert "Class: TestClass_TEST" in log["info"]
-
-    @responses.activate
     def test_run_task__no_code_coverage(self):
         self._mock_apex_class_query()
         self._mock_run_tests()
@@ -551,48 +515,6 @@ class TestRunApexTests(MockLoggerMixin, unittest.TestCase):
         task()
         task._check_code_coverage.assert_called_once()
 
-    def test_code_coverage_integer(self):
-        task_config = TaskConfig()
-        task_config.config["options"] = {
-            "junit_output": "results_junit.xml",
-            "poll_interval": 1,
-            "test_name_match": "%_TEST",
-            "required_org_code_coverage_percent": 90,
-        }
-
-        org_config = OrgConfig(
-            {
-                "id": "foo/1",
-                "instance_url": "https://example.com",
-                "access_token": "abc123",
-            },
-            "test",
-        )
-        task = RunApexTests(self.project_config, task_config, org_config)
-
-        assert task.code_coverage_level == 90
-
-    def test_code_coverage_percentage(self):
-        task_config = TaskConfig()
-        task_config.config["options"] = {
-            "junit_output": "results_junit.xml",
-            "poll_interval": 1,
-            "test_name_match": "%_TEST",
-            "required_org_code_coverage_percent": "90%",
-        }
-
-        org_config = OrgConfig(
-            {
-                "id": "foo/1",
-                "instance_url": "https://example.com",
-                "access_token": "abc123",
-            },
-            "test",
-        )
-        task = RunApexTests(self.project_config, task_config, org_config)
-
-        assert task.code_coverage_level == 90
-
     def test_exception_bad_code_coverage(self):
         task_config = TaskConfig()
         task_config.config["options"] = {
@@ -607,7 +529,7 @@ class TestRunApexTests(MockLoggerMixin, unittest.TestCase):
 
     @responses.activate
     def test_run_task__code_coverage_managed(self):
-        self._mock_apex_class_query(namespace="TEST")
+        self._mock_apex_class_query()
         self._mock_run_tests()
         self._mock_get_failed_test_classes()
         self._mock_tests_complete()
@@ -768,7 +690,7 @@ class TestRunApexTests(MockLoggerMixin, unittest.TestCase):
 class TestAnonymousApexTask(unittest.TestCase):
     def setUp(self):
         self.api_version = 42.0
-        self.universal_config = UniversalConfig(
+        self.global_config = BaseGlobalConfig(
             {"project": {"api_version": self.api_version}}
         )
         self.tmpdir = tempfile.mkdtemp(dir=".")
@@ -779,10 +701,11 @@ class TestAnonymousApexTask(unittest.TestCase):
         self.task_config.config["options"] = {
             "path": apex_path,
             "apex": 'system.debug("Hello World!")',
+            "namespaced": True,
             "param1": "StringValue",
         }
         self.project_config = BaseProjectConfig(
-            self.universal_config, config={"noyaml": True}
+            self.global_config, config={"noyaml": True}
         )
         self.project_config.config = {
             "project": {
@@ -796,11 +719,9 @@ class TestAnonymousApexTask(unittest.TestCase):
                 "id": "foo/1",
                 "instance_url": "https://example.com",
                 "access_token": "abc123",
-                "namespace": "abc",
             },
             "test",
         )
-        self.org_config._installed_packages = {}
         self.base_tooling_url = "{}/services/data/v{}/tooling/".format(
             self.org_config.instance_url, self.api_version
         )
@@ -831,17 +752,9 @@ class TestAnonymousApexTask(unittest.TestCase):
             task()
 
     def test_prepare_apex(self):
-        self.task_config.config["options"]["namespaced"] = True
-
         task = AnonymousApexTask(self.project_config, self.task_config, self.org_config)
-        before = "String %%%NAMESPACED_ORG%%%str = '%%%NAMESPACED_RT%%%';"
-        expected = "String abc__str = 'abc.';"
-        self.assertEqual(expected, task._prepare_apex(before))
-
-    def test_prepare_apex__detect_namespace(self):
-        task = AnonymousApexTask(self.project_config, self.task_config, self.org_config)
-        before = "String %%%NAMESPACED_ORG%%%str = '%%%NAMESPACED_RT%%%';"
-        expected = "String abc__str = 'abc.';"
+        before = "String %%%NAMESPACE%%%str = 'foo';"
+        expected = "String abc__str = 'foo';"
         self.assertEqual(expected, task._prepare_apex(before))
 
     def test_optional_parameter_1_replacement(self):
@@ -945,7 +858,7 @@ class TestAnonymousApexTask(unittest.TestCase):
 class TestRunBatchApex(MockLoggerMixin, unittest.TestCase):
     def setUp(self):
         self.api_version = 42.0
-        self.universal_config = UniversalConfig(
+        self.global_config = BaseGlobalConfig(
             {"project": {"api_version": self.api_version}}
         )
         self.task_config = TaskConfig()
@@ -954,7 +867,7 @@ class TestRunBatchApex(MockLoggerMixin, unittest.TestCase):
             "poll_interval": 1,
         }
         self.project_config = BaseProjectConfig(
-            self.universal_config, config={"noyaml": True}
+            self.global_config, config={"noyaml": True}
         )
         self.project_config.config["project"] = {
             "package": {"api_version": self.api_version}
@@ -1023,7 +936,7 @@ class TestRunBatchApex(MockLoggerMixin, unittest.TestCase):
         task = BatchApexWait(self.project_config, self.task_config, self.org_config)
         url = (
             self.base_tooling_url
-            + "query/?q=SELECT+Id%2C+ApexClass.Name%2C+Status%2C+ExtendedStatus%2C+TotalJobItems%2C+JobItemsProcessed%2C+NumberOfErrors%2C+CreatedDate%2C+CompletedDate+FROM+AsyncApexJob+WHERE+JobType+IN+%28%27BatchApex%27%2C%27Queueable%27%29+AND+ApexClass.Name%3D%27ADDR_Seasonal_BATCH%27++++ORDER+BY+CreatedDate+DESC++LIMIT+1+"
+            + "query/?q=SELECT+Id%2C+ApexClass.Name%2C+Status%2C+ExtendedStatus%2C+TotalJobItems%2C+JobItemsProcessed%2C+NumberOfErrors%2C+CreatedDate%2C+CompletedDate+FROM+AsyncApexJob+WHERE+JobType%3D%27BatchApex%27+AND+ApexClass.Name%3D%27ADDR_Seasonal_BATCH%27++++ORDER+BY+CreatedDate+DESC++LIMIT+1+"
         )
         return task, url
 
@@ -1066,20 +979,6 @@ class TestRunBatchApex(MockLoggerMixin, unittest.TestCase):
         self.assertEqual(task.elapsed_time(task.subjobs), 61)
 
     @responses.activate
-    def test_run_batch_apex_queueable_status_failed(self):
-        task, url = self._get_url_and_task()
-        response = self._get_query_resp()
-        response["records"][0]["JobType"] = "Queueable"
-        response["records"][0]["Status"] = "Failed"
-        response["records"][0]["JobItemsProcessed"] = 0
-        response["records"][0]["TotalJobItems"] = 0
-        response["records"][0]["ExtendedStatus"] = "Error Details"
-        responses.add(responses.GET, url, json=response)
-        with self.assertRaises(SalesforceException) as e:
-            task()
-        assert "failure" in str(e.exception)
-
-    @responses.activate
     def test_run_batch_apex_status_aborted(self):
         task, url = self._get_url_and_task()
         response = self._get_query_resp()
@@ -1110,7 +1009,7 @@ class TestRunBatchApex(MockLoggerMixin, unittest.TestCase):
         task, url = self._get_url_and_task()
         url2 = (
             url.split("?")[0]
-            + "?q=SELECT+Id%2C+ApexClass.Name%2C+Status%2C+ExtendedStatus%2C+TotalJobItems%2C+JobItemsProcessed%2C+NumberOfErrors%2C+CreatedDate%2C+CompletedDate+FROM+AsyncApexJob+WHERE+JobType+IN+%28%27BatchApex%27%2C%27Queueable%27%29+AND+ApexClass.Name%3D%27ADDR_Seasonal_BATCH%27++AND+CreatedDate+%3E%3D+2018-08-07T16%3A00%3A00Z++ORDER+BY+CreatedDate+DESC++"
+            + "?q=SELECT+Id%2C+ApexClass.Name%2C+Status%2C+ExtendedStatus%2C+TotalJobItems%2C+JobItemsProcessed%2C+NumberOfErrors%2C+CreatedDate%2C+CompletedDate+FROM+AsyncApexJob+WHERE+JobType%3D%27BatchApex%27+AND+ApexClass.Name%3D%27ADDR_Seasonal_BATCH%27++AND+CreatedDate+%3E%3D+2018-08-07T16%3A00%3A00Z++ORDER+BY+CreatedDate+DESC++"
         )
 
         # batch 1
@@ -1171,7 +1070,7 @@ class TestRunBatchApex(MockLoggerMixin, unittest.TestCase):
         task, url = self._get_url_and_task()
         url2 = (
             url.split("?")[0]
-            + "?q=SELECT+Id%2C+ApexClass.Name%2C+Status%2C+ExtendedStatus%2C+TotalJobItems%2C+JobItemsProcessed%2C+NumberOfErrors%2C+CreatedDate%2C+CompletedDate+FROM+AsyncApexJob+WHERE+JobType+IN+%28%27BatchApex%27%2C%27Queueable%27%29+AND+ApexClass.Name%3D%27ADDR_Seasonal_BATCH%27++AND+CreatedDate+%3E%3D+2018-08-07T16%3A00%3A00Z++ORDER+BY+CreatedDate+DESC++"
+            + "?q=SELECT+Id%2C+ApexClass.Name%2C+Status%2C+ExtendedStatus%2C+TotalJobItems%2C+JobItemsProcessed%2C+NumberOfErrors%2C+CreatedDate%2C+CompletedDate+FROM+AsyncApexJob+WHERE+JobType%3D%27BatchApex%27+AND+ApexClass.Name%3D%27ADDR_Seasonal_BATCH%27++AND+CreatedDate+%3E%3D+2018-08-07T16%3A00%3A00Z++ORDER+BY+CreatedDate+DESC++"
         )
 
         # batch 1
@@ -1220,7 +1119,7 @@ class TestRunBatchApex(MockLoggerMixin, unittest.TestCase):
         task, url = self._get_url_and_task()
         url2 = (
             url.split("?")[0]
-            + "?q=SELECT+Id%2C+ApexClass.Name%2C+Status%2C+ExtendedStatus%2C+TotalJobItems%2C+JobItemsProcessed%2C+NumberOfErrors%2C+CreatedDate%2C+CompletedDate+FROM+AsyncApexJob+WHERE+JobType+IN+%28%27BatchApex%27%2C%27Queueable%27%29+AND+ApexClass.Name%3D%27ADDR_Seasonal_BATCH%27++AND+CreatedDate+%3E%3D+2018-08-07T16%3A00%3A00Z++ORDER+BY+CreatedDate+DESC++"
+            + "?q=SELECT+Id%2C+ApexClass.Name%2C+Status%2C+ExtendedStatus%2C+TotalJobItems%2C+JobItemsProcessed%2C+NumberOfErrors%2C+CreatedDate%2C+CompletedDate+FROM+AsyncApexJob+WHERE+JobType%3D%27BatchApex%27+AND+ApexClass.Name%3D%27ADDR_Seasonal_BATCH%27++AND+CreatedDate+%3E%3D+2018-08-07T16%3A00%3A00Z++ORDER+BY+CreatedDate+DESC++"
         )
 
         # batch 1

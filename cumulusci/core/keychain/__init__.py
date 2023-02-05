@@ -1,10 +1,8 @@
 # IMPORT ORDER MATTERS!
 
 # inherit from BaseConfig
-from cumulusci.core.keychain.base_project_keychain import (
-    BaseProjectKeychain,
-    DEFAULT_CONNECTED_APP,
-)
+from cumulusci.core.keychain.BaseProjectKeychain import BaseProjectKeychain
+from cumulusci.core.keychain.BaseProjectKeychain import DEFAULT_CONNECTED_APP
 
 # inherit from BaseProjectKeychain
 from cumulusci.core.keychain.BaseEncryptedProjectKeychain import (
@@ -15,14 +13,6 @@ from cumulusci.core.keychain.EnvironmentProjectKeychain import (
 )
 
 # inherit from BaseEncryptedProjectKeychain
-from cumulusci.core.keychain.encrypted_file_project_keychain import (
+from cumulusci.core.keychain.EncryptedFileProjectKeychain import (
     EncryptedFileProjectKeychain,
-)
-
-__all__ = (
-    "BaseProjectKeychain",
-    "DEFAULT_CONNECTED_APP",
-    "BaseEncryptedProjectKeychain",
-    "EnvironmentProjectKeychain",
-    "EncryptedFileProjectKeychain",
 )

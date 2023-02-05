@@ -6,20 +6,15 @@ from cumulusci.utils.xml.metadata_tree import MetadataElement
 class AddValueSetEntries(MetadataSingleEntityTransformTask):
     entity = "StandardValueSet"
     task_options = {
-        **MetadataSingleEntityTransformTask.task_options,
         "entries": {
             "description": "Array of standardValues to insert. "
             "Each standardValue should contain the keys 'fullName', the API name of the entry, "
             "and 'label', the user-facing label. OpportunityStage entries require the additional "
             "keys 'closed', 'won', 'forecastCategory', and 'probability'; CaseStatus entries "
             "require 'closed'.",
-            "required": True,
+            "required": False,
         },
-        "api_names": {
-            "description": "List of API names of StandardValueSets to affect, "
-            "such as 'OpportunityStage', 'AccountType', 'CaseStatus'",
-            "required": True,
-        },
+        **MetadataSingleEntityTransformTask.task_options,
     }
 
     def _transform_entity(self, metadata: MetadataElement, api_name: str):

@@ -1,5 +1,5 @@
-import functools
 import json
+import functools
 
 from simple_salesforce import SalesforceMalformedRequest
 
@@ -88,11 +88,20 @@ class MetadataPackageVersion(BasePushApiObject):
         return version_number
 
     def get_newer_released_version_objs(self, less_than_version=None):
-        where = f"MetadataPackageId = '{self.package.sf_id}' AND ReleaseState = 'Released' AND "
+        where = (
+            "MetadataPackageId = '%s' AND ReleaseState = 'Released' AND "
+            % self.package.sf_id
+        )
         version_info = {"major": self.major, "minor": self.minor, "patch": self.patch}
-        where += f"(MajorVersion > {version_info['major']} OR (MajorVersion = {version_info['major']} AND MinorVersion > {version_info['minor']}))"
+        where += (
+            "(MajorVersion > %(major)s OR (MajorVersion = %(major)s AND MinorVersion > %(minor)s))"
+            % version_info
+        )
         if self.patch:
-            patch_where = f" OR (MajorVersion = {version_info['major']} AND MinorVersion = {version_info['minor']} AND PatchVersion > {version_info['patch']})"
+            patch_where = (
+                " OR (MajorVersion = %(major)s AND MinorVersion = %(minor)s AND PatchVersion > %(patch))"
+                % version_info
+            )
             where = where[:-1] + patch_where + where[-1:]
 
         if less_than_version:
@@ -101,23 +110,38 @@ class MetadataPackageVersion(BasePushApiObject):
                 "minor": less_than_version.minor,
                 "patch": less_than_version.patch,
             }
-            less_than_where = f" AND (MajorVersion < {version_info['major']} OR (MajorVersion = {version_info['major']} AND MinorVersion < {version_info['minor']}))"
+            less_than_where = (
+                " AND (MajorVersion < %(major)s OR (MajorVersion = %(major)s AND MinorVersion < %(minor)s))"
+                % version_info
+            )
             if less_than_version.patch:
-                patch_where = f" OR (MajorVersion = {version_info['major']} AND MinorVersion = {version_info['minor']} AND PatchVersion < {version_info['patch']})"
+                patch_where = (
+                    " OR (MajorVersion = %(major)s AND MinorVersion = %(minor)s AND PatchVersion < %(patch))"
+                    % version_info
+                )
                 less_than_where = (
                     less_than_where[:-1] + patch_where + less_than_where[-1:]
                 )
             where += less_than_where
 
-        return self.package.get_package_version_objs(where)  # versions
+        versions = self.package.get_package_version_objs(where)
+        return versions
 
     def get_older_released_version_objs(self, greater_than_version=None):
-        where = f"MetadataPackageId = '{self.package.sf_id}' AND ReleaseState = 'Released' AND "
+        where = (
+            "MetadataPackageId = '%s' AND ReleaseState = 'Released' AND "
+            % self.package.sf_id
+        )
         version_info = {"major": self.major, "minor": self.minor, "patch": self.patch}
-        where += f"(MajorVersion < {version_info['major']} OR (MajorVersion = {version_info['major']} AND MinorVersion < {version_info['minor']}))"
-
+        where += (
+            "(MajorVersion < %(major)s OR (MajorVersion = %(major)s AND MinorVersion < %(minor)s))"
+            % version_info
+        )
         if self.patch:
-            patch_where = f" OR (MajorVersion = {version_info['major']} AND MinorVersion = {version_info['minor']} AND PatchVersion < {version_info['patch']})"
+            patch_where = (
+                " OR (MajorVersion = %(major)s AND MinorVersion = %(minor)s AND PatchVersion < %(patch))"
+                % version_info
+            )
             where = where[:-1] + patch_where + where[-1:]
 
         if greater_than_version:
@@ -126,15 +150,22 @@ class MetadataPackageVersion(BasePushApiObject):
                 "minor": greater_than_version.minor,
                 "patch": greater_than_version.patch,
             }
-            greater_than_where = f" AND (MajorVersion > {version_info['major']} OR (MajorVersion = {version_info['major']} AND MinorVersion > {version_info['minor']}))"
+            greater_than_where = (
+                " AND (MajorVersion > %(major)s OR (MajorVersion = %(major)s AND MinorVersion > %(minor)s))"
+                % version_info
+            )
             if greater_than_version.patch:
-                patch_where = f" OR (MajorVersion = {version_info['major']} AND MinorVersion = {version_info['minor']} AND PatchVersion > {version_info['patch']})"
+                patch_where = (
+                    " OR (MajorVersion = %(major)s AND MinorVersion = %(minor)s AND PatchVersion > %(patch))"
+                    % version_info
+                )
                 greater_than_where = (
                     greater_than_where[:-1] + patch_where + greater_than_where[-1:]
                 )
             where += greater_than_where
 
-        return self.package.get_package_version_objs(where)  # versions
+        versions = self.package.get_package_version_objs(where)
+        return versions
 
     def get_subscribers(self, where=None, limit=None):
         where = self.format_where("MetadataPackageVersionId", where)
@@ -307,7 +338,7 @@ class SalesforcePushApi(object):
     @memoize
     def get_packages(self, where=None, limit=None):
         where = self.format_where_clause(where)
-        query = f"SELECT id, name, namespaceprefix FROM MetadataPackage{where}"
+        query = "SELECT id, name, namespaceprefix FROM MetadataPackage%s" % where
         query = self.add_query_limit(query, limit)
         return self.return_query_records(query)
 
@@ -520,7 +551,10 @@ class SalesforcePushApi(object):
                 jobs = self.get_push_job_objs(
                     where="Id = '%s'" % push_error["PackagePushJobId"]
                 )
-            job = jobs[0] if jobs else None
+                if jobs:
+                    job = jobs[0]
+                else:
+                    job = None
 
             push_error_objs.append(
                 PackagePushError(
@@ -583,14 +617,18 @@ class SalesforcePushApi(object):
         )
         return request_id, scheduled_orgs
 
-    def _add_batch(self, batch: list, request_id) -> list:
+    def _add_batch(self, batch, request_id):
 
         # add orgs to batch data
+        batch = set(batch)
         batch_data = {"records": []}
         for i, org in enumerate(batch):
             batch_data["records"].append(
                 {
-                    "attributes": {"type": "PackagePushJob", "referenceId": org},
+                    "attributes": {
+                        "type": "PackagePushJob",
+                        "referenceId": "org{}".format(i),
+                    },
                     "PackagePushRequestId": request_id,
                     "SubscriberOrganizationKey": org,
                 }
@@ -616,7 +654,9 @@ class SalesforcePushApi(object):
                         "INVALID_OPERATION",
                         "UNKNOWN_EXCEPTION",
                     ]:
-                        org_id = result["referenceId"]
+                        org_id = self._get_org_id(
+                            batch_data["records"], result["referenceId"]
+                        )
                         invalid_orgs.add(org_id)
                         self.logger.info(
                             "Skipping org {} - {}".format(org_id, error["message"])
@@ -629,14 +669,18 @@ class SalesforcePushApi(object):
                 self.logger.warning("Retrying batch")
                 batch = self._add_batch(batch, request_id)
             else:
-                for org_id in invalid_orgs:
-                    batch.remove(org_id)
+                batch -= invalid_orgs
                 if batch:
                     self.logger.warning("Retrying batch without invalid orgs")
                     batch = self._add_batch(batch, request_id)
                 else:
                     self.logger.error("Skipping batch (no valid orgs)")
         return batch
+
+    def _get_org_id(self, records, ref_id):
+        for record in records:
+            if record["attributes"]["referenceId"] == ref_id:
+                return record["SubscriberOrganizationKey"]
 
     def cancel_push_request(self, request_id):
         return self.sf.PackagePushRequest.update(request_id, {"Status": "Canceled"})

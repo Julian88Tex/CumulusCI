@@ -8,13 +8,12 @@ from cumulusci.core.exceptions import TaskOptionsError
 from cumulusci.tasks.bulkdata.tests.utils import _make_task
 
 import yaml
-import pytest
 from sqlalchemy import create_engine
 
 from cumulusci.tasks.bulkdata.generate_and_load_data_from_yaml import (
     GenerateAndLoadDataFromYaml,
 )
-from snowfakery import data_generator_runtime, data_generator
+from snowfakery import data_generator_runtime
 
 sample_yaml = Path(__file__).parent / "snowfakery/gen_npsp_standard_objects.yml"
 simple_yaml = Path(__file__).parent / "snowfakery/include_parent.yml"
@@ -40,7 +39,7 @@ class TestGenerateFromDataTask(unittest.TestCase):
     def assertRowsCreated(self, database_url):
         engine = create_engine(database_url)
         connection = engine.connect()
-        accounts = connection.execute("select * from Account")
+        accounts = connection.execute(f"select * from Account")
         accounts = list(accounts)
         assert accounts and accounts[0] and accounts[0][1]
         return accounts
@@ -147,41 +146,6 @@ class TestGenerateFromDataTask(unittest.TestCase):
     @mock.patch(
         "cumulusci.tasks.bulkdata.generate_and_load_data_from_yaml.GenerateAndLoadDataFromYaml._dataload"
     )
-    def test_simple_generate_and_load(self, _dataload):
-        task = _make_task(
-            GenerateAndLoadDataFromYaml,
-            {
-                "options": {
-                    "generator_yaml": simple_yaml,
-                    "num_records": 11,
-                    "num_records_tablename": "Account",
-                }
-            },
-        )
-        task()
-        assert len(_dataload.mock_calls) == 1
-
-    @mock.patch("cumulusci.tasks.bulkdata.generate_from_yaml.generate")
-    def test_exception_handled_cleanly(self, generate):
-        generate.side_effect = AssertionError("Foo")
-        with pytest.raises(AssertionError) as e:
-            task = _make_task(
-                GenerateAndLoadDataFromYaml,
-                {
-                    "options": {
-                        "generator_yaml": simple_yaml,
-                        "num_records": 11,
-                        "num_records_tablename": "Account",
-                    }
-                },
-            )
-            task()
-            assert "Foo" in str(e.value)
-        assert len(generate.mock_calls) == 1
-
-    @mock.patch(
-        "cumulusci.tasks.bulkdata.generate_and_load_data_from_yaml.GenerateAndLoadDataFromYaml._dataload"
-    )
     def test_batching(self, _dataload):
         with temp_sqlite_database_url() as database_url:
             task = _make_task(
@@ -217,7 +181,7 @@ class TestGenerateFromDataTask(unittest.TestCase):
             task()
         assert "without num_records_tablename" in str(e.exception)
 
-    def generate_continuation_data(self, fileobj):
+    def generate_continuation_data(self):
         g = data_generator_runtime.Globals()
         o = data_generator_runtime.ObjectRow(
             "Account", {"Name": "Johnston incorporated", "id": 5}
@@ -226,13 +190,14 @@ class TestGenerateFromDataTask(unittest.TestCase):
         for i in range(0, 5):
             # burn through 5 imaginary accounts
             g.id_manager.generate_id("Account")
-        data_generator.save_continuation_yaml(g, fileobj)
+        return yaml.safe_dump(g)
 
     def test_with_continuation_file(self):
+        continuation_data = self.generate_continuation_data()
         with temp_sqlite_database_url() as database_url:
             with temporary_file_path("cont.yml") as continuation_file_path:
                 with open(continuation_file_path, "w") as continuation_file:
-                    self.generate_continuation_data(continuation_file)
+                    continuation_file.write(continuation_data)
 
                 task = _make_task(
                     GenerateDataFromYaml,

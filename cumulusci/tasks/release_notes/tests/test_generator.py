@@ -39,7 +39,6 @@ PARSER_CONFIG = [
         "class_path": "cumulusci.tasks.release_notes.parser.GithubIssuesParser",
         "title": "Issues Closed",
     },
-    {"class_path": None},
 ]
 
 
@@ -48,7 +47,7 @@ class DummyParser(BaseChangeNotesParser):
         pass
 
     def _render(self):
-        return "dummy parser output"
+        return "dummy parser output".format(self.title)
 
 
 class TestBaseReleaseNotesGenerator(unittest.TestCase):
@@ -110,14 +109,13 @@ class TestGithubReleaseNotesGenerator(unittest.TestCase, GithubApiTestMixin):
         github_info = self.github_info.copy()
         self.mock_util.mock_get_repo()
         generator = GithubReleaseNotesGenerator(
-            self.gh, github_info, PARSER_CONFIG, self.current_tag, version_id="04t"
+            self.gh, github_info, PARSER_CONFIG, self.current_tag
         )
         self.assertEqual(generator.github_info, github_info)
         self.assertEqual(generator.current_tag, self.current_tag)
         self.assertEqual(generator.last_tag, None)
         self.assertEqual(generator.change_notes.current_tag, self.current_tag)
         self.assertEqual(generator.change_notes._last_tag, None)
-        self.assertEqual("04t", generator.version_id)
 
     @responses.activate
     def test_init_with_last_tag(self):
@@ -217,7 +215,7 @@ class TestPublishingGithubReleaseNotesGenerator(unittest.TestCase, GithubApiTest
             "github_repo": "TestRepo",
             "github_username": "TestUser",
             "github_password": "TestPass",
-            "default_branch": "main",
+            "master_branch": "master",
         }
         self.gh = get_github_api("TestUser", "TestPass")
         self.mock_util = MockUtil("TestOwner", "TestRepo")
@@ -439,7 +437,7 @@ class TestParentPullRequestNotesGenerator(GithubApiTestMixin):
         return ParentPullRequestNotesGenerator(gh_api, repo, create_project_config())
 
     def test_init_parsers(self, generator):
-        assert 7 == len(generator.parsers)
+        assert 6 == len(generator.parsers)
         assert generator.parsers[-1]._in_section
 
     @responses.activate
@@ -477,8 +475,8 @@ class TestParentPullRequestNotesGenerator(GithubApiTestMixin):
         pr3_json["body"] = ""
 
         pr4_json = self._get_expected_pull_request(5, 5, "Should not be in body")
-        # simulate merge from main back into parent
-        pr4_json["head"]["ref"] = "main"
+        # simulate merge from master back into parent
+        pr4_json["head"]["ref"] = "master"
 
         mock_util.mock_pulls(pulls=[pr1_json, pr2_json, pr3_json, pr4_json])
 

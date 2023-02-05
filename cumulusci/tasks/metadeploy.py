@@ -1,7 +1,6 @@
 from pathlib import Path
 import json
 import os
-import re
 import requests
 
 from cumulusci.core.config import BaseProjectConfig
@@ -14,9 +13,6 @@ from cumulusci.core.exceptions import TaskOptionsError
 from cumulusci.utils import download_extract_github
 from cumulusci.utils import cd
 from cumulusci.utils import temporary_dir
-from cumulusci.utils.http.requests_utils import safe_json_from_response
-
-INSTALL_VERSION_RE = re.compile(r"^Install .*\d$")
 
 
 class BaseMetaDeployTask(BaseTask):
@@ -35,7 +31,8 @@ class BaseMetaDeployTask(BaseTask):
             response = self.api.request(method, next_url, **kwargs)
             if response.status_code == 400:
                 raise requests.exceptions.HTTPError(response.content)
-            response = safe_json_from_response(response)
+            response.raise_for_status()
+            response = response.json()
             if "links" in response and collect_pages:
                 results.extend(response["data"])
                 next_url = response["links"]["next"]
@@ -45,7 +42,8 @@ class BaseMetaDeployTask(BaseTask):
 
 
 class Publish(BaseMetaDeployTask):
-    """Publishes installation plans to MetaDeploy."""
+    """Publishes installation plans to MetaDeploy.
+    """
 
     task_options = {
         "tag": {"description": "Name of the git tag to publish"},
@@ -74,7 +72,7 @@ class Publish(BaseMetaDeployTask):
         super(Publish, self)._init_task()
         self.dry_run = self.options.get("dry_run")
         self.publish = not self.dry_run and process_bool_arg(
-            self.options.get("publish") or False
+            self.options.get("publish", False)
         )
         self.tag = self.options.get("tag")
         self.commit = self.options.get("commit")
@@ -121,7 +119,7 @@ class Publish(BaseMetaDeployTask):
         with temporary_dir() as project_dir:
             zf.extractall(project_dir)
             project_config = BaseProjectConfig(
-                self.project_config.universal_config_obj,
+                self.project_config.global_config_obj,
                 repo_info={
                     "root": project_dir,
                     "owner": repo_owner,
@@ -158,7 +156,7 @@ class Publish(BaseMetaDeployTask):
                 self.logger.debug("Prepared steps:\n" + json.dumps(steps, indent=4))
                 for step in steps:
                     # avoid separate labels for installing each package
-                    if INSTALL_VERSION_RE.match(step["name"]):
+                    if step["name"].startswith("Install "):
                         self._add_label(
                             "steps",
                             "Install {product} {version}",
@@ -261,7 +259,8 @@ class Publish(BaseMetaDeployTask):
         return product
 
     def _find_or_create_version(self, product):
-        """Create a Version in MetaDeploy if it doesn't already exist"""
+        """Create a Version in MetaDeploy if it doesn't already exist
+        """
         if self.tag:
             label = self.project_config.get_version_for_tag(self.tag)
         else:
@@ -356,15 +355,12 @@ class Publish(BaseMetaDeployTask):
     def _publish_labels(self, slug):
         """Publish labels in all languages to MetaDeploy."""
         for path in Path(self.labels_path).glob("*.json"):
-            lang = path.stem.split("_")[-1].lower()
-            if lang in ("en", "en-us"):
+            lang = path.stem[-2:]
+            if lang == "en":
                 continue
             orig_labels = json.loads(path.read_text())
             prefixed_labels = {}
             for context, labels in orig_labels.items():
                 prefixed_labels[f"{slug}:{context}"] = labels
             self.logger.info(f"Updating {lang} translations")
-            try:
-                self._call_api("PATCH", f"/translations/{lang}", json=prefixed_labels)
-            except requests.exceptions.HTTPError as err:
-                self.logger.warning(f"Could not update {lang} translation: {err}")
+            self._call_api("PATCH", f"/translations/{lang}", json=prefixed_labels)

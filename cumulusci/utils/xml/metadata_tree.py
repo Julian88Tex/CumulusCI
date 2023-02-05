@@ -255,17 +255,13 @@ class MetadataElement:
             if matches(e)
         )
 
-    def tostring(self, xml_declaration=False, include_parent_namespaces=False):
+    def tostring(self, xml_declaration=False):
         """Serialize back to XML.
 
         The XML Declaration is optional and can be controlled by `xml_declaration`"""
         doc = etree.ElementTree(self._element)
         etree.indent(doc, space="    ")
-        return serialize_xml_for_salesforce(
-            doc,
-            xml_declaration=xml_declaration,
-            include_parent_namespaces=include_parent_namespaces,
-        )
+        return serialize_xml_for_salesforce(doc, xml_declaration=xml_declaration)
 
     def __eq__(self, other: "MetadataElement"):
         eq = self._element == other._element

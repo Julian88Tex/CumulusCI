@@ -18,10 +18,8 @@ class test_PublishCommunity(unittest.TestCase):
         communities_url = "{}/services/data/v46.0/connect/communities".format(
             cc_task.org_config.instance_url
         )
-        community_publish_url = (
-            "{}/services/data/v46.0/connect/communities/{}/publish".format(
-                cc_task.org_config.instance_url, task_options_with_id["community_id"]
-            )
+        community_publish_url = "{}/services/data/v46.0/connect/communities/{}/publish".format(
+            cc_task.org_config.instance_url, task_options_with_id["community_id"]
         )
 
         responses.add(
@@ -79,10 +77,8 @@ class test_PublishCommunity(unittest.TestCase):
     @responses.activate
     def test_publishes_community_with_id(self):
         cc_task = create_task(PublishCommunity, task_options_with_id)
-        community_publish_url = (
-            "{}/services/data/v46.0/connect/communities/{}/publish".format(
-                cc_task.org_config.instance_url, task_options_with_id["community_id"]
-            )
+        community_publish_url = "{}/services/data/v46.0/connect/communities/{}/publish".format(
+            cc_task.org_config.instance_url, task_options_with_id["community_id"]
         )
 
         responses.add(
@@ -150,10 +146,8 @@ class test_PublishCommunity(unittest.TestCase):
     @responses.activate
     def test_throws_exception_for_bad_id(self):
         cc_task = create_task(PublishCommunity, task_options_with_id)
-        community_publish_url = (
-            "{}/services/data/v46.0/connect/communities/{}/publish".format(
-                cc_task.org_config.instance_url, task_options_with_id["community_id"]
-            )
+        community_publish_url = "{}/services/data/v46.0/connect/communities/{}/publish".format(
+            cc_task.org_config.instance_url, task_options_with_id["community_id"]
         )
 
         responses.add(
