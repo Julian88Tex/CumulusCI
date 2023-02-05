@@ -1,22 +1,19 @@
-import base64
-import io
+from unittest import mock
 import unittest
-import zipfile
 
-from cumulusci.core.config import UniversalConfig
+from cumulusci.core.config import BaseGlobalConfig
 from cumulusci.core.config import BaseProjectConfig
 from cumulusci.tasks.salesforce import CreatePackage
 from .util import create_task
 
 
 class TestCreatePackage(unittest.TestCase):
-    def test_get_package_zip(self):
+    @mock.patch("cumulusci.salesforce_api.package_zip.CreatePackageZipBuilder.__call__")
+    def test_get_package_zip(self, CreatePackageZipBuilder):
         project_config = BaseProjectConfig(
-            UniversalConfig(),
+            BaseGlobalConfig(),
             {"project": {"package": {"name": "TestPackage", "api_version": "43.0"}}},
         )
         task = create_task(CreatePackage, project_config=project_config)
-        package_zip = task._get_package_zip()
-        zf = zipfile.ZipFile(io.BytesIO(base64.b64decode(package_zip)), "r")
-        package_xml = zf.read("package.xml")
-        assert b"<fullName>TestPackage</fullName>" in package_xml
+        task._get_package_zip()
+        CreatePackageZipBuilder.assert_called_once()

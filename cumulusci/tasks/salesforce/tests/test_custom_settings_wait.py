@@ -1,35 +1,40 @@
 import unittest
+from unittest.mock import MagicMock, patch
 
 import responses
 
 from cumulusci.core.config import (
-    UniversalConfig,
+    BaseGlobalConfig,
     BaseProjectConfig,
+    OrgConfig,
     TaskConfig,
 )
 from cumulusci.core.keychain import BaseProjectKeychain
-from cumulusci.core.exceptions import TaskOptionsError
-from cumulusci.core.tests.utils import MockLoggerMixin
+from cumulusci.core.exceptions import SalesforceException
 from cumulusci.tasks.salesforce.custom_settings_wait import CustomSettingValueWait
-from cumulusci.tests.util import DummyOrgConfig
+from cumulusci.core.tests.utils import MockLoggerMixin
 
 
+@patch(
+    "cumulusci.tasks.salesforce.BaseSalesforceTask._update_credentials",
+    MagicMock(return_value=None),
+)
 class TestRunCustomSettingsWait(MockLoggerMixin, unittest.TestCase):
     def setUp(self):
         self.api_version = 42.0
-        self.universal_config = UniversalConfig(
+        self.global_config = BaseGlobalConfig(
             {"project": {"api_version": self.api_version}}
         )
         self.task_config = TaskConfig()
         self.project_config = BaseProjectConfig(
-            self.universal_config, config={"noyaml": True}
+            self.global_config, config={"noyaml": True}
         )
         self.project_config.config["project"] = {
             "package": {"api_version": self.api_version}
         }
         keychain = BaseProjectKeychain(self.project_config, "")
         self.project_config.set_keychain(keychain)
-        self.org_config = DummyOrgConfig(
+        self.org_config = OrgConfig(
             {
                 "id": "foo/1",
                 "instance_url": "https://example.com",
@@ -79,25 +84,6 @@ class TestRunCustomSettingsWait(MockLoggerMixin, unittest.TestCase):
             "poll_interval": 1,
         }
 
-        # simulate finding no settings record and then finding one with the expected value
-        task, url = self._get_url_and_task()
-        responses.add(
-            responses.GET, url, json={"totalSize": 0, "done": True, "records": []}
-        )
-        response = self._get_query_resp()
-        response["records"][0]["Customizable_Rollups_Enabled__c"] = True
-        responses.add(responses.GET, url, json=response)
-        task()
-
-    @responses.activate
-    def test_run_custom_settings_wait_match_bool_changed_case(self):
-        self.task_config.config["options"] = {
-            "object": "CUSTOMIZABLE_Rollup_Setings__c",
-            "field": "CUSTOMIZABLE_Rollups_enabled__C",
-            "value": True,
-            "poll_interval": 1,
-        }
-
         task, url = self._get_url_and_task()
         response = self._get_query_resp()
         response["records"][0]["Customizable_Rollups_Enabled__c"] = True
@@ -120,22 +106,7 @@ class TestRunCustomSettingsWait(MockLoggerMixin, unittest.TestCase):
         task()
 
     @responses.activate
-    def test_run_custom_settings_wait_match_str(self):
-        self.task_config.config["options"] = {
-            "object": "Customizable_Rollup_Setings__c",
-            "field": "Rollups_Account_Batch_Size__c",
-            "value": "asdf",
-            "poll_interval": 1,
-        }
-
-        task, url = self._get_url_and_task()
-        response = self._get_query_resp()
-        response["records"][0]["Rollups_Account_Batch_Size__c"] = "asdf"
-        responses.add(responses.GET, url, json=response)
-        task()
-
-    @responses.activate
-    def test_run_custom_settings_wait_not_settings_object(self):
+    def test_run_custom_settings_wait_bad_object(self):
         self.task_config.config["options"] = {
             "object": "Customizable_Rollup_Setings__c",
             "field": "Rollups_Account_Batch_Size__c",
@@ -144,35 +115,12 @@ class TestRunCustomSettingsWait(MockLoggerMixin, unittest.TestCase):
         }
 
         task, url = self._get_url_and_task()
-        responses.add(
-            responses.GET,
-            url,
-            status=400,
-            json=[
-                {
-                    "message": "\nSELECT SetupOwnerId FROM npe5__Affiliation__c\n       ^\nERROR at Row:1:Column:8\nNo such column 'SetupOwnerId' on entity 'npe5__Affiliation__c'. If you are attempting to use a custom field, be sure to append the '__c' after the custom field name. Please reference your WSDL or the describe call for the appropriate names.",
-                    "errorCode": "INVALID_FIELD",
-                }
-            ],
-        )
+        response = self._get_query_resp()
+        response["records"][0]["SetupOwnerId"] = "00X"
+        responses.add(responses.GET, url, json=response)
+        # task()
 
-        with self.assertRaises(TaskOptionsError) as e:
+        with self.assertRaises(SalesforceException) as e:
             task()
 
-        assert "supported" in str(e.exception)
-
-    def test_apply_namespace__managed(self):
-        self.project_config.config["project"]["package"]["namespace"] = "ns"
-        self.task_config.config["options"] = {
-            "object": "%%%NAMESPACE%%%Test__c",
-            "field": "Field__c",
-            "value": "x",
-            "managed": True,
-            "namespaced": True,
-        }
-        task, url = self._get_url_and_task()
-        task.object_name = "%%%NAMESPACE%%%Test__c"
-        task.field_name = "%%%NAMESPACE%%%Field__c"
-        task._apply_namespace()
-        assert task.object_name == "ns__Test__c"
-        assert task.field_name == "ns__Field__c"
+        assert "found" in str(e.exception)

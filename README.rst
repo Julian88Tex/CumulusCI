@@ -1,52 +1,36 @@
-=========
+===============================
 CumulusCI
-=========
+===============================
 
-|pypi| |python| |license| |docs|
-
-.. |pypi| image:: https://img.shields.io/pypi/v/cumulusci
+.. image:: https://img.shields.io/pypi/v/cumulusci
            :target: https://pypi.org/project/cumulusci/
            :alt: PyPI
-.. |python| image:: https://img.shields.io/pypi/pyversions/cumulusci
+.. image:: https://img.shields.io/pypi/pyversions/cumulusci
            :alt: PyPI - Python Version
-.. |license| image:: https://img.shields.io/pypi/l/cumulusci
+.. image:: https://img.shields.io/pypi/l/cumulusci
            :alt: PyPI - License
-.. |docs| image:: https://readthedocs.org/projects/cumulusci/badge/?version=latest
+.. image:: https://readthedocs.org/projects/cumulusci/badge/?version=latest
            :target: https://cumulusci.readthedocs.io/en/latest/?badge=latest
            :alt: Documentation Status
 
-CumulusCI helps build great applications on the Salesforce platform by automating org setup, testing, and deployment for everyone — from developers and admins to testers and product managers.
+CumulusCI is a command line tool belt and set of reusable Python classes useful in the development and release process of building a Salesforce Managed Package application.
 
-**Best practices, proven at scale.** CumulusCI provides a complete development and release process created by Salesforce.org to build and release applications to thousands of users on the Salesforce platform. It's easy to start new projects with a standard set of tasks (single actions) and flows (sequences of tasks), or customize by adding your own.
 
-**Batteries included.** Out-of-the-box features help you quickly:
+Key Features
+------------
 
-* Build sophisticated orgs with automatic installation of dependencies.
-* Load and capture sample datasets to make your orgs feel real.
-* Apply transformations to existing metadata to tailor orgs to your specific requirements.
-* Run builds in continuous integration systems.
-* Create end-to-end browser tests and setup automation using `Robot Framework <https://robotframework.org/>`_.
+* Out of the box, CumulusCI provides a complete best practice development and release process based on the processes used by Salesforce.org to build and release managed packages to thousands of users
+* Flexible and pluggable system for running tasks (single actions) and flows (sequences of tasks)
+* OAuth based org keychain allowing easy connection to Salesforce orgs and stored in local files using AES encryption
 
-**Build anywhere.** Automation defined using CumulusCI is portable. It is stored in a source repository and can be run from your local command line, from a continuous integration system, or from a customer-facing MetaDeploy installer. CumulusCI can run automation on scratch orgs created using the Salesforce CLI, or on persistent orgs like sandboxes, production orgs, and Developer Edition orgs.
+For more information, read the `full documentation`_.
 
-Learn more
-----------
+.. _`full documentation`: https://cumulusci.readthedocs.io/en/latest/
 
-For a tutorial introduction to CumulusCI, complete the `Build Applications with CumulusCI <https://trailhead.salesforce.com/en/content/learn/trails/build-applications-with-cumulusci>`_ trail on Trailhead.
+If you just want a quick intro, watch this screencast demo of using CumulusCI to configure a Salesforce project from a GitHub repository:
+https://asciinema.org/a/91555
 
-To go in depth, read the `full documentation <https://cumulusci.readthedocs.io/en/latest/>`_.
+CumulusCI 1.0 (Ant based) Users, **PLEASE READ**
+================================================
 
-If you just want a quick intro, watch `these screencast demos <https://cumulusci.readthedocs.io/en/latest/demos.html>`_ of using CumulusCI to configure a Salesforce project from a GitHub repository.
-
-For a live demo with voiceover, please see Jason Lantz's 
-`PyCon 2020 presentation <https://www.youtube.com/watch?v=XL77lRTVF3g>`_
-from minute 36 through minute 54.
-
-Questions?
-----------
-
-Salesforce.org (http://salesforce.org/) customers and partners can ask in the `CumulusCI group in the Power of Us Hub <https://powerofus.force.com/s/group/0F980000000PSRHCA4/cumulusci-cci>`_.
-
-Others can ask in the `CumulusCI group in the Trailblazer Community <https://success.salesforce.com/_ui/core/chatter/groups/GroupProfilePage?g=0F9300000009M9ZCAU>`_.
-
-*Please note:* CumulusCI is distributed under an `open source license <https://github.com/SFDO-Tooling/CumulusCI/blob/master/LICENSE>`_ and is not covered by the Salesforce Master Subscription Agreement.
+The master branch now contains CumulusCI 2 which is not backwards compatible with the previous CumulusCI that was based on Ant. If you are using the Ant targets, please switch to using the `legacy-1.0` branch of the repository which contains the Ant based version. Or, consider upgrading to CumulusCI 2.

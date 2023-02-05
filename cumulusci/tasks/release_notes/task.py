@@ -38,18 +38,6 @@ class GithubReleaseNotes(BaseGithubTask):
         "include_empty": {
             "description": "If True, include links to PRs that have no release notes (default=False)"
         },
-        "version_id": {
-            "description": "The package version id used by the InstallLinksParser to add install urls"
-        },
-        "trial_info": {
-            "description": "If True, Includes trialforce template text for this product."
-        },
-        "sandbox_date": {
-            "description": "The date of the sandbox release in ISO format (Will default to None)"
-        },
-        "production_date": {
-            "description": "The date of the production release in ISO format (Will default to None)"
-        },
     }
 
     def _run_task(self):
@@ -58,7 +46,7 @@ class GithubReleaseNotes(BaseGithubTask):
             "github_repo": self.project_config.repo_name,
             "github_username": self.github_config.username,
             "github_password": self.github_config.password,
-            "default_branch": self.project_config.project__git__default_branch,
+            "master_branch": self.project_config.project__git__default_branch,
             "prefix_beta": self.project_config.project__git__prefix_beta,
             "prefix_prod": self.project_config.project__git__prefix_release,
         }
@@ -73,10 +61,6 @@ class GithubReleaseNotes(BaseGithubTask):
             process_bool_arg(self.options.get("publish", False)),
             self.get_repo().has_issues,
             process_bool_arg(self.options.get("include_empty", False)),
-            version_id=self.options.get("version_id"),
-            trial_info=self.options.get("trial_info", False),
-            sandbox_date=self.options.get("sandbox_date", None),
-            production_date=self.options.get("production_date", None),
         )
 
         release_notes = generator()
@@ -132,9 +116,7 @@ class ParentPullRequestNotes(BaseGithubTask):
         self.repo = self.get_repo()
         self.commit = self.repo.commit(self.project_config.repo_commit)
         self.branch_name = self.options.get("branch_name")
-        self.force_rebuild_change_notes = process_bool_arg(
-            self.options["force"] or False
-        )
+        self.force_rebuild_change_notes = process_bool_arg(self.options["force"])
         self.generator = ParentPullRequestNotesGenerator(
             self.github, self.repo, self.project_config
         )

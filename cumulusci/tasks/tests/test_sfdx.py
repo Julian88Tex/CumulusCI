@@ -6,7 +6,7 @@ import unittest
 from unittest.mock import MagicMock
 from unittest.mock import patch
 
-from cumulusci.core.config import UniversalConfig
+from cumulusci.core.config import BaseGlobalConfig
 from cumulusci.core.config import BaseProjectConfig
 from cumulusci.core.config import TaskConfig
 from cumulusci.core.config import OrgConfig
@@ -25,9 +25,9 @@ class TestSFDXBaseTask(MockLoggerMixin, unittest.TestCase):
     """ Tests for the Base Task type """
 
     def setUp(self):
-        self.universal_config = UniversalConfig()
+        self.global_config = BaseGlobalConfig()
         self.project_config = BaseProjectConfig(
-            self.universal_config, config={"noyaml": True}
+            self.global_config, config={"noyaml": True}
         )
         self.task_config = TaskConfig()
 
@@ -48,8 +48,7 @@ class TestSFDXBaseTask(MockLoggerMixin, unittest.TestCase):
         except CommandException:
             pass
 
-        self.assertEqual("force:org", task.options["command"])
-        self.assertEqual("sfdx force:org --help", task._get_command())
+        self.assertEqual("sfdx force:org --help", task.options["command"])
 
     @patch(
         "cumulusci.tasks.sfdx.SFDXOrgTask._update_credentials",
@@ -86,7 +85,7 @@ class TestSFDXBaseTask(MockLoggerMixin, unittest.TestCase):
         org_config = ScratchOrgConfig({"username": "test@example.com"}, "test")
 
         task = SFDXOrgTask(self.project_config, self.task_config, org_config)
-        self.assertIn("-u test@example.com", task._get_command())
+        self.assertIn("-u test@example.com", task.options["command"])
 
 
 class TestSFDXJsonTask(unittest.TestCase):

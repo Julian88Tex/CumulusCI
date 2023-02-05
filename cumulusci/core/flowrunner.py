@@ -79,14 +79,6 @@ RETURN_VALUE_OPTION_PREFIX = "^^"
 jinja2_env = ImmutableSandboxedEnvironment()
 
 
-class StepVersion(LooseVersion):
-    """Like LooseVersion, but converts "/" into -1 to support comparisons"""
-
-    def parse(self, vstring: str):
-        super().parse(vstring)
-        self.version = tuple(-1 if x == "/" else x for x in self.version)
-
-
 class StepSpec(object):
     """ simple namespace to describe what the flowrunner should do each step """
 
@@ -104,7 +96,7 @@ class StepSpec(object):
 
     def __init__(
         self,
-        step_num: StepVersion,
+        step_num,
         task_name,
         task_config,
         task_class,
@@ -149,13 +141,9 @@ StepResult = namedtuple(
 
 
 class FlowCallback(object):
-    """A subclass of FlowCallback allows code running a flow
-    to inject callback methods to run during the flow. Anything you
-    would like the FlowCallback to have access to can be passed to the
-    constructor. This is typically used to pass a Django model or model id
-    when running a flow inside of a web app.
+    """A place for code running a flow to inject callbacks to run during the flow.
 
-    Example subclass of FlowCallback:
+    A subclass of FlowCallback can use its own constructor to track context, e.g. to refer to a Django model:
 
         class CustomFlowCallback(FlowCallback):
             def __init__(self, model):
@@ -164,54 +152,25 @@ class FlowCallback(object):
             def post_task(self, step, result):
                 # do something to record state on self.model
 
-    Once a subclass is defined, you can instantiate it, and
-    pass it as the value for the 'callbacks' keyword argument
-    when instantiating a FlowCoordinator.
-
-    Example running a flow with custom callbacks:
-
-        custom_callbacks = CustomFlowCallbacks(model_instance)
-        flow_coordinator = FlowCoordinator(
-            project_config,
-            flow_config,
-            name=flow_name,
-            options=options,
-            callbacks=custom_callbacks,
-        )
-        flow_coordinator.run(org_config)
-
-
+    (An instance of the custom FlowCallback class would be passed to FlowCoordinator.)
     """
 
     def pre_flow(self, coordinator):
-        """This is passed an instance of FlowCoordinator,
-        that pertains to the flow which is about to run."""
         pass
 
     def post_flow(self, coordinator):
-        """This is passed an instance of FlowCoordinator,
-        that pertains to the flow just finished running.
-        This step executes whether or not the flow completed
-        successfully."""
         pass
 
     def pre_task(self, step):
-        """This is passed an instance StepSpec, that
-        pertains to the task which is about to run."""
         pass
 
     def post_task(self, step, result):
-        """This method is called after a task has executed.
-
-        :param step: Instance of StepSpec that relates to the task which executed
-        :param result: Instance of the StepResult class that was run. Attributes of
-        interest include, `result.result`, `result.return_values`, and `result.exception`
-        """
         pass
 
 
 class TaskRunner(object):
-    """TaskRunner encapsulates the job of instantiating and running a task."""
+    """ TaskRunner encapsulates the job of instantiating and running a task.
+    """
 
     def __init__(self, step, org_config, flow=None):
         self.step = step
@@ -317,24 +276,12 @@ class FlowCoordinator(object):
             self.logger.info("")
 
     def get_summary(self):
-        """Returns an output string that contains the description of the flow
-        and its steps."""
+        """ Returns an output string that contains the description of the flow,
+            the sequence of tasks and subflows, and any "when" conditions associated
+            with tasks. """
         lines = []
         if "description" in self.flow_config.config:
             lines.append(f"Description: {self.flow_config.config['description']}")
-
-        step_lines = self.get_flow_steps()
-        if step_lines:
-            lines.append("\nFlow Steps")
-        lines.extend(step_lines)
-
-        return "\n".join(lines)
-
-    def get_flow_steps(self, for_docs=False):
-        """Returns a list of flow steps (tasks and sub-flows) for the given flow.
-        For docs, indicates whether or not we want to use the string for use in a code-block
-        of an rst file. If True, will omit output of source information."""
-        lines = []
         previous_parts = []
         previous_source = None
         for step in self.steps:
@@ -357,29 +304,18 @@ class FlowCoordinator(object):
                 else:
                     source = ""
                 if len(previous_parts) < i + 1 or previous_parts[i] != flow_name:
-                    if for_docs:
-                        source = ""
-
                     lines.append(f"{'    ' * i}{steps[i]}) flow: {flow_name}{source}")
                     if source:
                         new_source = ""
 
             padding = "    " * (i + 1) + " " * len(str(steps[i + 1]))
-            when = f"{padding}  when: {step.when}" if step.when is not None else ""
-
-            if for_docs:
-                new_source = ""
-
+            when = f"\n{padding}  when: {step.when}" if step.when is not None else ""
             lines.append(
-                f"{'    ' * (i + 1)}{steps[i + 1]}) task: {task_name}{new_source}"
+                f"{'    ' * (i + 1)}{steps[i + 1]}) task: {task_name}{new_source}{when}"
             )
-            if when:
-                lines.append(when)
-
             previous_parts = parts
             previous_source = step.project_config.source
-
-        return lines
+        return "\n".join(lines)
 
     def run(self, org_config):
         self.org_config = org_config
@@ -413,46 +349,41 @@ class FlowCoordinator(object):
 
         try:
             for step in self.steps:
-                self._run_step(step)
-            flow_name = f"'{self.name}' " if self.name else ""
-            self.logger.info(f"Completed flow {flow_name}successfully!")
+                if step.skip:
+                    self._rule(fill="*")
+                    self.logger.info(f"Skipping task: {step.task_name}")
+                    self._rule(fill="*", new_line=True)
+                    continue
+
+                if step.when:
+                    jinja2_context = {
+                        "project_config": step.project_config,
+                        "org_config": self.org_config,
+                    }
+                    expr = jinja2_env.compile_expression(step.when)
+                    value = expr(**jinja2_context)
+                    if not value:
+                        self.logger.info(
+                            f"Skipping task {step.task_name} (skipped unless {step.when})"
+                        )
+                        continue
+
+                self._rule(fill="-")
+                self.logger.info(f"Running task: {step.task_name}")
+                self._rule(fill="-", new_line=True)
+
+                self.callbacks.pre_task(step)
+                result = TaskRunner.from_flow(self, step).run_step()
+                self.callbacks.post_task(step, result)
+
+                self.results.append(
+                    result
+                )  # add even a failed result to the result set for the post flow
+
+                if result.exception and not step.allow_failure:
+                    raise result.exception  # PY3: raise an exception type we control *from* this exception instead?
         finally:
             self.callbacks.post_flow(self)
-
-    def _run_step(self, step):
-        if step.skip:
-            self._rule(fill="*")
-            self.logger.info(f"Skipping task: {step.task_name}")
-            self._rule(fill="*", new_line=True)
-            return
-
-        if step.when:
-            jinja2_context = {
-                "project_config": step.project_config,
-                "org_config": self.org_config,
-            }
-            expr = jinja2_env.compile_expression(step.when)
-            value = expr(**jinja2_context)
-            if not value:
-                self.logger.info(
-                    f"Skipping task {step.task_name} (skipped unless {step.when})"
-                )
-                return
-
-        self._rule(fill="-")
-        self.logger.info(f"Running task: {step.task_name}")
-        self._rule(fill="-", new_line=True)
-
-        self.callbacks.pre_task(step)
-        result = TaskRunner.from_flow(self, step).run_step()
-        self.callbacks.post_task(step, result)
-
-        self.results.append(
-            result
-        )  # add even a failed result to the result set for the post flow
-
-        if result.exception and not step.allow_failure:
-            raise result.exception  # PY3: raise an exception type we control *from* this exception instead?
 
     def _init_logger(self):
         """
@@ -497,7 +428,7 @@ class FlowCoordinator(object):
 
         If it is a flow, we recursively call _visit_step with the rest of the parameters of context.
 
-        :param number: StepVersion representation of the current step number
+        :param number: LooseVersion representation of the current step number
         :param step_config: the current step's config (dict from YAML)
         :param visited_steps: used when called recursively for nested steps, becomes the return value
         :param parent_options: used when called recursively for nested steps, options from parent flow
@@ -505,7 +436,7 @@ class FlowCoordinator(object):
         :param from_flow: used when called recursively for nested steps, name of parent flow
         :return: List[StepSpec] a list of all resolved steps including/under the one passed in
         """
-        number = StepVersion(str(number))
+        number = LooseVersion(str(number))
 
         if visited_steps is None:
             visited_steps = []
@@ -661,10 +592,14 @@ class FlowCoordinator(object):
         self.logger.info(
             f"Verifying and refreshing credentials for the specified org: {self.org_config.name}."
         )
+        orig_config = self.org_config.config.copy()
 
         # attempt to refresh the token, this can throw...
-        with self.org_config.save_if_changed():
-            self.org_config.refresh_oauth_token(self.project_config.keychain)
+        self.org_config.refresh_oauth_token(self.project_config.keychain)
+
+        if self.org_config.config != orig_config:
+            self.logger.info("Org info has changed, updating org in keychain")
+            self.project_config.keychain.set_org(self.org_config)
 
     def resolve_return_value_options(self, options):
         """Handle dynamic option value lookups in the format ^^task_name.attr"""
@@ -682,7 +617,8 @@ class FlowCoordinator(object):
 
 
 class PreflightFlowCoordinator(FlowCoordinator):
-    """Coordinates running preflight checks instead of the actual flow steps."""
+    """Coordinates running preflight checks instead of the actual flow steps.
+    """
 
     def run(self, org_config):
         self.org_config = org_config
@@ -762,7 +698,7 @@ class CachedTaskRunner(object):
         task_config = self.cache.flow.project_config.tasks[self.task_name]
         task_class = import_global(task_config["class_path"])
         step = StepSpec(
-            step_num=StepVersion("1"),
+            step_num=1,
             task_name=self.task_name,
             task_config=task_config,
             task_class=task_class,

@@ -23,7 +23,7 @@ class TestCloneTag(unittest.TestCase, GithubApiTestMixin):
             ServiceConfig(
                 {
                     "username": "TestUser",
-                    "token": "TestPass",
+                    "password": "TestPass",
                     "email": "testuser@testdomain.com",
                 }
             ),

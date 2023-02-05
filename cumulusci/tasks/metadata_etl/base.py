@@ -4,7 +4,7 @@ from pathlib import Path
 import tempfile
 from urllib.parse import quote, unquote
 
-from cumulusci.core.exceptions import CumulusCIException, TaskOptionsError
+from cumulusci.core.exceptions import CumulusCIException
 from cumulusci.core.tasks import BaseSalesforceTask
 from cumulusci.salesforce_api.metadata import ApiRetrieveUnpackaged
 from cumulusci.tasks.metadata.package import PackageXmlGenerator
@@ -12,7 +12,6 @@ from cumulusci.core.utils import process_bool_arg, process_list_arg
 from cumulusci.utils import inject_namespace
 from cumulusci.core.config import TaskConfig
 from cumulusci.utils.xml import metadata_tree
-from cumulusci.utils.xml.metadata_tree import MetadataElement
 
 
 class MetadataOperation(enum.Enum):
@@ -43,56 +42,16 @@ class BaseMetadataETLTask(BaseSalesforceTask, metaclass=ABCMeta):
     def _init_options(self, kwargs):
         super()._init_options(kwargs)
 
+        self.options["managed"] = process_bool_arg(self.options.get("managed", False))
         self.api_version = (
             self.options.get("api_version")
             or self.project_config.project__package__api_version
         )
-        try:
-            float(self.api_version)
-        except ValueError:
-            raise TaskOptionsError(f"Invalid API version {self.api_version}")
-
-        self.options["namespace_inject"] = (
-            self.options.get("namespace_inject")
-            or self.project_config.project__package__namespace
-        )
-        # org_config might be None if we're freezing steps for metadeploy.
-        # We can only autodetect the context for namespace injection if we have the org.
-        if self.org_config:
-            self._init_namespace_injection()
-
-    def _init_namespace_injection(self):
-        namespace = (
-            self.options.get("namespace_inject")
-            or self.project_config.project__package__namespace
-        )
-        if "managed" in self.options:
-            self.options["managed"] = process_bool_arg(self.options["managed"] or False)
-        else:
-            self.options["managed"] = (
-                bool(namespace) and namespace in self.org_config.installed_packages
-            )
-        if "namespaced_org" in self.options:
-            self.options["namespaced_org"] = process_bool_arg(
-                self.options["namespaced_org"] or False
-            )
-        else:
-            self.options["namespaced_org"] = (
-                bool(namespace) and namespace == self.org_config.namespace
-            )
 
     def _inject_namespace(self, text):
         """Inject the namespace into the given text if running in managed mode."""
-        # We might not have an org yet if this is called from _init_options
-        # while freezing steps for metadeploy.
-        if self.org_config is None:
-            return text
         return inject_namespace(
-            "",
-            text,
-            namespace=self.options["namespace_inject"],
-            managed=self.options.get("managed") or False,
-            namespaced_org=self.options.get("namespaced_org"),
+            "", text, self.options.get("namespace_inject"), self.options["managed"]
         )[1]
 
     @abstractmethod
@@ -134,7 +93,7 @@ class BaseMetadataETLTask(BaseSalesforceTask, metaclass=ABCMeta):
         self.logger.info("Loading transformed metadata...")
         target_profile_xml = Path(self.deploy_dir, "package.xml")
         target_profile_xml.write_text(
-            self._generate_package_xml(MetadataOperation.DEPLOY), encoding="utf-8"
+            self._generate_package_xml(MetadataOperation.DEPLOY)
         )
 
         # import is here to avoid an import cycle
@@ -147,8 +106,7 @@ class BaseMetadataETLTask(BaseSalesforceTask, metaclass=ABCMeta):
                     "options": {
                         "path": self.deploy_dir,
                         "namespace_inject": self.options.get("namespace_inject"),
-                        "unmanaged": not self.options["managed"],
-                        "namespaced_org": self.options["namespaced_org"],
+                        "unmanaged": not self.options.get("managed"),
                     }
                 }
             ),
@@ -347,90 +305,3 @@ class MetadataSingleEntityTransformTask(BaseMetadataTransformTask, metaclass=ABC
                 removed_api_names.add(api_name)
 
         self.api_names = self.api_names - removed_api_names
-
-
-class UpdateMetadataFirstChildTextTask(MetadataSingleEntityTransformTask):
-    task_docs = """
-Metadata ETL task to update a single child element's text within metadata XML.
-
-If the child doesn't exist, the child is created and appended to the Metadata.   Furthermore, the ``value`` option is namespaced injected if the task is properly configured.
-
-Example: Assign a Custom Object's Compact Layout
-------------------------------------------------
-
-Researching `CustomObject <https://developer.salesforce.com/docs/atlas.en-us.api_meta.meta/api_meta/customobject.htm>`_ in the Metadata API documentation or even retrieving the CustomObject's Metadata for inspection, we see the ``compactLayoutAssignment`` Field.  We want to assign a specific Compact Layout for our Custom Object, so we write the following CumulusCI task in our project's ``cumulusci.yml``.
-
-.. code-block::  yaml
-
-  tasks:
-      assign_compact_layout:
-          class_path: cumulusci.tasks.metadata_etl.UpdateMetadataFirstChildTextTask
-          options:
-              managed: False
-              namespace_inject: $project_config.project__package__namespace
-              entity: CustomObject
-              api_names: OurCustomObject__c
-              tag: compactLayoutAssignment
-              value: "%%%NAMESPACE%%%DifferentCompactLayout"
-              # We include a namespace token so it's easy to use this task in a managed context.
-
-Suppose the original CustomObject metadata XML looks like:
-
-.. code-block:: xml
-
-  <?xml version="1.0" encoding="UTF-8"?>
-  <CustomObject xmlns="http://soap.sforce.com/2006/04/metadata">
-      ...
-      <label>Our Custom Object</label>
-      <compactLayoutAssignment>OriginalCompactLayout</compactLayoutAssignment>
-      ...
-  </CustomObject>
-
-After running ``cci task run assign_compact_layout``, the CustomObject metadata XML is deployed as:
-
-.. code-block:: xml
-
-  <?xml version="1.0" encoding="UTF-8"?>
-  <CustomObject xmlns="http://soap.sforce.com/2006/04/metadata">
-      ...
-      <label>Our Custom Object</label>
-      <compactLayoutAssignment>DifferentCompactLayout</compactLayoutAssignment>
-      ...
-  </CustomObject>
-    """
-
-    task_options = {
-        "metadata_type": {"description": "Metadata Type", "required": True},
-        "tag": {
-            "description": "Targeted tag. The text of the first instance of this tag within the metadata entity will be updated.",
-            "required": True,
-        },
-        "value": {
-            "description": "Desired value to set for the targeted tag's text. This value is namespace-injected.",
-            "required": True,
-        },
-        **MetadataSingleEntityTransformTask.task_options,
-    }
-
-    def _init_options(self, kwargs):
-        super()._init_options(kwargs)
-        self.entity = self.options.get("metadata_type")
-        self.options["value"] = self._inject_namespace(self.options.get("value"))
-
-    def _transform_entity(
-        self, metadata: MetadataElement, api_name: str
-    ) -> MetadataElement:
-        """Finds metadata's first child with tag.  If no child is found, appends
-        a new child with tag.  Then updates child's text as the value option."""
-        tag = self.options["tag"]
-
-        child = metadata.find(tag)
-        if child is None:
-            child = metadata.append(tag)
-
-        child.text = self.options["value"]
-
-        self.logger.info(f'Updating {self.entity} "{api_name}":')
-        self.logger.info(f'    {tag} as "{child.text}"')
-
-        return metadata

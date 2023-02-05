@@ -50,7 +50,7 @@ If you run the `cci project info` command from inside a git repository that has 
         uninstall_class: None
         api_version: 33.0
     git:
-        default_branch: main
+        default_branch: master
         prefix_feature: feature/
         prefix_beta: beta/
         prefix_release: release/
@@ -92,7 +92,7 @@ You can use the `cci project init` command to initialize the configuration:
     Package namespace: mynamespace
     Package api version [38.0]:
     Git prefix feature [feature/]:
-    Git default branch [main]:
+    Git default branch [master]:
     Git prefix beta [beta/]:
     Git prefix release [release/]:
     Test namematch [%_TEST%]:
@@ -122,7 +122,7 @@ To get through some of the tasks later in the tutorial, you will need to connect
 
 Go to https://github.com/settings/tokens/new and create a new personal access token with both "repo" and "gist" scopes specified. Copy the access token to use as the password when configuring the GitHub service.
 
-Run the following and provide your GitHub username and token:
+Run the following and provide your GitHub username and use the access token as the password:
 
 .. code-block:: console
 
@@ -406,7 +406,7 @@ Once you have some orgs connected, you can start running tasks against them. Fir
     deploy_post_managed             Deploys all metadata bundles under unpackaged/post/
     get_installed_packages          Retrieves a list of the currently installed managed package namespaces and their versions
     github_clone_tag                Lists open pull requests in project Github repository
-    github_master_to_feature        Merges the latest commit on the main branch into all open feature branches
+    github_master_to_feature        Merges the latest commit on the master branch into all open feature branches
     github_pull_requests            Lists open pull requests in project Github repository
     github_release                  Creates a Github release for a given managed package version number
     github_release_notes            Generates release notes by parsing pull request bodies of merged pull requests between two tags
@@ -668,7 +668,11 @@ To set up our newly connected dev org, run the dev_org flow:
     2016-11-03 12:02:42:
     2016-11-03 12:02:42: Running task: deploy_post
     2016-11-03 12:02:43: Options:
+    2016-11-03 12:02:43:   namespace_token: %%%NAMESPACE%%%
     2016-11-03 12:02:43:   path: unpackaged/post
+    2016-11-03 12:02:43:   namespace: ccitest
+    2016-11-03 12:02:43:   managed: False
+    2016-11-03 12:02:43:   filename_token: ___NAMESPACE___
     2016-11-03 12:02:43: Deploying all metadata bundles in path /Users/jlantz/dev/CumulusCI-Test/unpackaged/post
     2016-11-03 12:02:43: Deploying bundle: unpackaged/post/salesforce1
     2016-11-03 12:02:43: Pending
@@ -738,6 +742,7 @@ Create the file **tasks/salesforce.py** with the following content:
 .. code-block:: python
 
     from cumulusci.tasks.salesforce import BaseSalesforceApiTask
+    from cumulusci.tasks.salesforce import BaseSalesforceToolingApiTask
 
     class ListContacts(BaseSalesforceApiTask):
 
@@ -746,7 +751,7 @@ Create the file **tasks/salesforce.py** with the following content:
             for contact in res['records']:
                 self.logger.info('{Id}: {FirstName} {LastName}'.format(**contact))
 
-    class ListApexClasses(BaseSalesforceApiTask):
+    class ListApexClasses(BaseSalesforceToolingApiTask):
 
         def _run_task(self):
             res = self.tooling.query('Select Id, Name, NamespacePrefix from ApexClass LIMIT 10')

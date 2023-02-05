@@ -156,11 +156,7 @@ class FlowNotReadyError(CumulusCIException):
     pass
 
 
-class SfdxOrgException(CumulusCIException):
-    """Raise for errors related to fetching orgs from the sfdx keychain"""
-
-
-class ScratchOrgException(SfdxOrgException):
+class ScratchOrgException(CumulusCIException):
     """ Raise for errors related to scratch orgs """
 
     pass
@@ -251,19 +247,3 @@ class BulkDataException(CumulusCIFailure):
     """ Raise for errors from bulkdata tasks """
 
     pass
-
-
-class DependencyLookupError(CumulusCIFailure):
-    """ Raise for errors looking up the PackageVersionId for a managed package dependency """
-
-    pass
-
-
-class PackageUploadFailure(CumulusCIFailure):
-    """ Raise for errors in uploading a 2GP package version """
-
-    pass
-
-
-class PackageInstallError(Exception):
-    """Error installing a 2GP package version"""

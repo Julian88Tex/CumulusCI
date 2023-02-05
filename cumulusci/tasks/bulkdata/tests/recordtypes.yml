@@ -1,5 +1,4 @@
 Insert Accounts:
-    api: bulk
     sf_object: Account
     table: accounts
     fields:

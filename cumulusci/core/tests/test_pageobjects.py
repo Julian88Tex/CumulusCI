@@ -13,25 +13,19 @@ BarTestPage has two.
 
 """
 
-import sys
 import unittest
 import os.path
-import pytest
 from unittest import mock
 from cumulusci.robotframework import PageObjects
 from cumulusci.robotframework.CumulusCI import CumulusCI
 from cumulusci.robotframework.pageobjects.PageObjectLibrary import _PageObjectLibrary
 from cumulusci.robotframework.pageobjects import (
-    BasePage,
     ListingPage,
     EditModal,
     NewModal,
     HomePage,
     DetailPage,
-    ObjectManagerPage,
 )
-from cumulusci.utils import temporary_dir
-from robot.libraries.BuiltIn import BuiltIn
 import robot.utils
 
 
@@ -54,8 +48,8 @@ BASE_REGISTRY = {
     ("Home", ""): HomePage,
     ("Listing", ""): ListingPage,
     ("New", ""): NewModal,
-    ("ObjectManager", ""): ObjectManagerPage,
 }
+
 
 # this is the importer used by the page objects, which makes it easy
 # peasy to import by file path
@@ -89,35 +83,6 @@ class TestPageObjects(unittest.TestCase):
         po = PageObjects()
         self.assertEqual(po.get_keyword_names(), CORE_KEYWORDS)
         self.assertEqual(po.registry, BASE_REGISTRY)
-
-    def test_file_in_pythonpath(self, get_context_mock, get_library_instance_mock):
-        """Verify we can find a page object via PYTHONPATH"""
-        # PageObjects will throw an error if it can't find the file.
-        # As long as this doesn't throw an error, we're golden.
-        if HERE not in sys.path:
-            sys.path.append(HERE)
-        PageObjects("FooTestPage.py")
-
-    def test_exception_not_found(self, get_context_mock, get_library_instance_mock):
-        """Verify we get an assertion of we can't find a page object file"""
-        # make sure the folder isn't on system path by accident
-        if HERE in sys.path:
-            sys.path.remove(HERE)
-        with pytest.raises(
-            ImportError, match="Unable to find page object file 'FooTestPage.py'"
-        ):
-            PageObjects("FooTestPage.py")
-
-    def test_import_failed(self, get_context_mock, get_library_instance_mock):
-        with temporary_dir() as d:
-            with open("busted.py", "w") as f:
-                f.write("class Busted  # incomplete class\n")
-                f.close()
-                sys.path.append(d)
-                with pytest.raises(
-                    ImportError, match="Unable to import page object 'busted.py': .*"
-                ):
-                    PageObjects("busted.py")
 
     def test_PageObject_registry_with_custom_pageobjects(
         self, get_context_mock, get_library_instance_mock
@@ -166,52 +131,3 @@ class TestPageObjects(unittest.TestCase):
 
             pobj = po.get_page_object("Test", "Foo__c")
             self.assertEqual(pobj.object_name, "Foo__c")
-
-
-@mock.patch(
-    "robot.libraries.BuiltIn.BuiltIn.get_library_instance",
-    side_effect=MockGetLibraryInstance(),
-)
-class TestBasePage(unittest.TestCase):
-    """Some low-level tests of page object classes"""
-
-    def test_no_implicit_wait(self, mock_get_library_instance):
-        """Verify the "implicit wait" context manager restores the value"""
-
-        selib = BuiltIn().get_library_instance("SeleniumLibrary")
-        selib.set_selenium_implicit_wait.return_value = 7
-        selib.set_selenium_implicit_wait.reset_mock()
-
-        page = BasePage()
-        with page._no_implicit_wait():
-            pass
-
-        # The first call should pass in zero to turn off the
-        # implicit wait.  We've configured the mocked function to
-        # return '7'. The second call should pass the return value
-        # of the first call
-        selib.set_selenium_implicit_wait.assert_has_calls(
-            (mock.call(0), mock.call(7)), any_order=False
-        )
-
-    def test_no_implicit_wait_with_exception(self, mock_get_library_instance):
-        """Verify the "implicit wait" context manager restores the value even if exception occurs"""
-
-        selib = BuiltIn().get_library_instance("SeleniumLibrary")
-        selib.set_selenium_implicit_wait.return_value = 42
-        selib.set_selenium_implicit_wait.reset_mock()
-
-        page = BasePage()
-        try:
-            with page._no_implicit_wait():
-                raise Exception("Danger Will Robinson!")
-        except Exception:
-            pass
-
-        # The first call should pass in zero to turn off the
-        # implicit wait.  We've configured the mocked function to
-        # return '42'. The second call should pass the return value
-        # of the first call
-        selib.set_selenium_implicit_wait.assert_has_calls(
-            (mock.call(0), mock.call(42)), any_order=False
-        )

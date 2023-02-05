@@ -18,7 +18,7 @@ class GithubApiTestMixin(object):
             "github_password": "TestPass",
             "prefix_beta": "beta/",
             "prefix_prod": "release/",
-            "default_branch": "main",
+            "master_branch": "master",
         }
 
     def _get_expected_user(self, name):
@@ -54,7 +54,7 @@ class GithubApiTestMixin(object):
             "description": "",
             "archived": False,
             "created_at": now,
-            "default_branch": "main",
+            "default_branch": "master",
             "fork": False,
             "forks_count": 1,
             "full_name": "{}/{}".format(owner, name),
@@ -207,14 +207,6 @@ class GithubApiTestMixin(object):
             "zipball_url": "",
         }
 
-    def _get_expected_commit(self, sha):
-        return {
-            "url": f"{self.repo_api_url}/commits/{sha}",
-            "sha": sha,
-            "files": [],
-            "stats": {},
-        }
-
     def _get_expected_branches(self, branches=None):
         if not branches:
             branches = []
@@ -319,15 +311,15 @@ class GithubApiTestMixin(object):
 
         base_repo = self._get_expected_repo("TestOwner", "TestRepo")
         if hasattr(self, "project_config"):
-            default_branch = self.project_config.project__git__default_branch
+            master_branch = self.project_config.project__git__default_branch
         else:
-            default_branch = "main"
+            master_branch = "master"
         pr = {
             "additions": [],
             "assignee": None,
             "assignees": [],
             "base": {
-                "ref": default_branch,
+                "ref": master_branch,
                 "sha": commit_sha,
                 "label": "",
                 "repo": base_repo,

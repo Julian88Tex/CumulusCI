@@ -6,7 +6,6 @@ import os
 import re
 import time
 
-from cumulusci.core.config import ScratchOrgConfig
 from cumulusci.core.sfdx import sfdx
 from cumulusci.core.utils import process_bool_arg
 from cumulusci.core.utils import process_list_arg
@@ -52,18 +51,18 @@ class ListChanges(BaseSalesforceApiTask):
         self._exclude.extend(self.project_config.project__source__ignore or [])
 
     @property
-    @contextlib.contextmanager
-    def _snapshot_file(self):
-        with self.project_config.open_cache("snapshot") as parent_dir:
-            yield parent_dir / f"{self.org_config.name}.json"
+    def _snapshot_path(self):
+        parent_dir = os.path.join(".cci", "snapshot")
+        if not os.path.isdir(parent_dir):
+            os.makedirs(parent_dir)
+        return os.path.join(parent_dir, "{}.json".format(self.org_config.name))
 
     def _load_snapshot(self):
         """Load the snapshot of which component revisions have been retrieved."""
         self._snapshot = {}
-        with self._snapshot_file as sf:
-            if sf.exists():
-                with sf.open("r") as f:
-                    self._snapshot = json.load(f)
+        if os.path.isfile(self._snapshot_path):
+            with open(self._snapshot_path, "r") as f:
+                self._snapshot = json.load(f)
 
     def _run_task(self):
         self._load_snapshot()
@@ -92,7 +91,7 @@ class ListChanges(BaseSalesforceApiTask):
     def _get_changes(self):
         """Get the SourceMember records that have changed since the last snapshot."""
         sourcemembers = self.tooling.query_all(
-            "SELECT MemberName, MemberType, RevisionCounter FROM SourceMember "
+            "SELECT MemberName, MemberType, RevisionNum FROM SourceMember "
             "WHERE IsNameObsolete=false"
         )
         changes = []
@@ -100,7 +99,7 @@ class ListChanges(BaseSalesforceApiTask):
             mdtype = sourcemember["MemberType"]
             name = sourcemember["MemberName"]
             current_revnum = self._snapshot.get(mdtype, {}).get(name)
-            new_revnum = sourcemember["RevisionCounter"] or -1
+            new_revnum = sourcemember["RevisionNum"] or -1
             if current_revnum and current_revnum == new_revnum:
                 continue
             changes.append(sourcemember)
@@ -128,24 +127,32 @@ class ListChanges(BaseSalesforceApiTask):
         for change in changes:
             mdtype = change["MemberType"]
             name = change["MemberName"]
-            revnum = change["RevisionCounter"] or -1
+            revnum = change["RevisionNum"] or -1
             self._snapshot.setdefault(mdtype, {})[name] = revnum
-        with self._snapshot_file as sf:
-            with sf.open("w") as f:
-                json.dump(self._snapshot, f)
+        with open(self._snapshot_path, "w") as f:
+            json.dump(self._snapshot, f)
 
-    def _reset_sfdx_snapshot(self):
-        # If org is from sfdx, reset sfdx source tracking
-        if self.project_config.project__source_format == "sfdx" and isinstance(
-            self.org_config, ScratchOrgConfig
-        ):
-            sfdx(
-                "force:source:tracking:reset",
-                args=["-p"],
-                username=self.org_config.username,
-                capture_output=True,
-                check_return=True,
-            )
+    @property
+    def _maxrevision_path(self):
+        parent_dir = os.path.join(".sfdx", "orgs", self.org_config.username)
+        if not os.path.isdir(parent_dir):
+            os.makedirs(parent_dir)
+        return os.path.join(parent_dir, "maxrevision.json")
+
+    def _load_maxrevision(self):
+        """Load sfdx's maxrevision file."""
+        if not os.path.exists(self._maxrevision_path):
+            return -1
+        with open(self._maxrevision_path, "r") as f:
+            return json.load(f)
+
+    def _store_maxrevision(self, value):
+        """Update sfdx's maxrevision file."""
+        if value == -1:
+            return
+        self.logger.info(f"Setting source tracking max revision to {value}")
+        with open(self._maxrevision_path, "w") as f:
+            json.dump(value, f)
 
 
 retrieve_changes_task_options = ListChanges.task_options.copy()
@@ -168,11 +175,7 @@ def _write_manifest(changes, path, api_version):
     """Write a package.xml for the specified changes and API version."""
     type_members = defaultdict(list)
     for change in changes:
-        mdtype = change["MemberType"]
-        # folders are retrieved along with their contained type
-        if mdtype.endswith("Folder"):
-            mdtype = mdtype[: -len("Folder")]
-        type_members[mdtype].append(change["MemberName"])
+        type_members[change["MemberType"]].append(change["MemberName"])
 
     generator = PackageXmlGenerator(
         ".",
@@ -364,11 +367,14 @@ class RetrieveChanges(ListChanges, BaseSalesforceApiTask):
         if self.options["snapshot"]:
             self.logger.info("Storing snapshot of changes")
             self._store_snapshot(filtered)
-
             if not ignored:
                 # If all changed components were retrieved,
-                # we can reset sfdx source tracking too
-                self._reset_sfdx_snapshot()
+                # we can update the sfdx maxrevision too
+                current_maxrevision = self._load_maxrevision()
+                new_maxrevision = max(
+                    change["RevisionNum"] or -1 for change in filtered
+                )
+                self._store_maxrevision(max(current_maxrevision, new_maxrevision))
 
 
 class SnapshotChanges(ListChanges):
@@ -391,7 +397,8 @@ class SnapshotChanges(ListChanges):
 
             if changes:
                 self._store_snapshot(changes)
-            self._reset_sfdx_snapshot()
+                maxrevision = max(change["RevisionNum"] or -1 for change in changes)
+                self._store_maxrevision(maxrevision)
 
     def freeze(self, step):
         return []

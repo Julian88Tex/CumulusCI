@@ -15,7 +15,7 @@ class TestPullRequests(unittest.TestCase):
             ServiceConfig(
                 {
                     "username": "TestUser",
-                    "token": "TestPass",
+                    "password": "TestPass",
                     "email": "testuser@testdomain.com",
                 }
             ),

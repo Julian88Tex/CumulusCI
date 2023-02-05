@@ -1,5 +1,4 @@
 Insert Accounts:
-  api: bulk
   sf_object: Account
   table: accounts
   fields:
@@ -24,7 +23,6 @@ Insert Accounts:
       table: accounts
       after: Insert Accounts
 Insert Contacts:
-  api: bulk
   sf_object: Contact
   table: contacts
   fields:
@@ -48,7 +46,6 @@ Insert Contacts:
     AccountId:
       table: accounts
 Insert Opportunities:
-  api: bulk
   sf_object: Opportunity
   table: opportunities
   filters:
@@ -66,7 +63,6 @@ Insert Opportunities:
     AccountId:
       table: accounts
 Insert OpportunityContactRoles:
-  api: bulk
   sf_object: OpportunityContactRole
   table: opportunitycontactroles
   fields:
@@ -79,7 +75,6 @@ Insert OpportunityContactRoles:
     OpportunityId:
       table: opportunities
 Insert Cases:
-  api: bulk
   sf_object: Case
   table: cases
   fields:

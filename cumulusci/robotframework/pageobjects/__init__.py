@@ -9,4 +9,3 @@ from .BasePageObjects import (  # noqa: F401
     NewModal,
     EditModal,
 )
-from .ObjectManagerPageObject import ObjectManagerPage  # noqa: F401

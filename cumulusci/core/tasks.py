@@ -5,7 +5,6 @@ Subclass BaseTask or a descendant to define custom task logic
 import contextlib
 import logging
 import os
-import re
 import time
 import threading
 
@@ -18,8 +17,6 @@ from cumulusci.core.exceptions import TaskOptionsError
 CURRENT_TASK = threading.local()
 CURRENT_TASK.stack = []
 
-PROJECT_CONFIG_RE = re.compile(r"\$project_config.(\w+)")
-
 
 @contextlib.contextmanager
 def stacked_task(task):
@@ -31,7 +28,7 @@ def stacked_task(task):
 
 
 class BaseTask(object):
-    """BaseTask provides the core execution logic for a Task
+    """ BaseTask provides the core execution logic for a Task
 
     Subclass BaseTask and provide a `_run_task()` method with your
     code.
@@ -49,12 +46,15 @@ class BaseTask(object):
         flow=None,
         name=None,
         stepnum=None,
-        **kwargs,
+        **kwargs
     ):
         self.project_config = project_config
         self.task_config = task_config
         self.org_config = org_config
-        self._reset_poll()
+        self.poll_count = 0
+        self.poll_interval_level = 0
+        self.poll_interval_s = 1
+        self.poll_complete = False
 
         # dict of return_values that can be used by task callers
         self.return_values = {}
@@ -84,24 +84,20 @@ class BaseTask(object):
 
     def _init_options(self, kwargs):
         """ Initializes self.options """
-        if self.task_config.options is None:
+        self.options = self.task_config.options
+        if self.options is None:
             self.options = {}
-        else:
-            self.options = self.task_config.options.copy()
-
         if kwargs:
             self.options.update(kwargs)
 
         # Handle dynamic lookup of project_config values via $project_config.attr
-        for option, value in self.options.items():
-            if isinstance(value, str):
-                value = PROJECT_CONFIG_RE.sub(
-                    lambda match: str(
-                        getattr(self.project_config, match.group(1), None)
-                    ),
-                    value,
-                )
-                self.options[option] = value
+        for option, value in list(self.options.items()):
+            try:
+                if value.startswith("$project_config."):
+                    attr = value.replace("$project_config.", "", 1)
+                    self.options[option] = getattr(self.project_config, attr, None)
+            except AttributeError:
+                pass
 
     def _validate_options(self):
         missing_required = []
@@ -110,13 +106,15 @@ class BaseTask(object):
                 missing_required.append(name)
 
         if missing_required:
-            required_opts = ",".join(missing_required)
             raise TaskOptionsError(
-                f"{self.__class__.__name__} requires the options ({required_opts}) and no values were provided"
+                "{} requires the options ({}) "
+                "and no values were provided".format(
+                    self.__class__.__name__, ", ".join(missing_required)
+                )
             )
 
     def _update_credentials(self):
-        """ Override to do any logic to refresh credentials """
+        """ Override to do any logic  to refresh credentials """
         pass
 
     def _init_task(self):
@@ -135,8 +133,7 @@ class BaseTask(object):
 
         with stacked_task(self):
             self.working_path = os.getcwd()
-            path = self.project_config.repo_root if self.project_config else None
-            with cd(path):
+            with cd(self.project_config.repo_root):
                 self._log_begin()
                 self.result = self._run_task()
                 return self.return_values
@@ -147,10 +144,10 @@ class BaseTask(object):
 
     def _log_begin(self):
         """ Log the beginning of the task execution """
-        self.logger.info(f"Beginning task: {self.__class__.__name__}")
+        self.logger.info("Beginning task: %s", self.__class__.__name__)
         if self.salesforce_task and not self.flow:
-            self.logger.info(f"As user: {self.org_config.username}")
-            self.logger.info(f"In org: {self.org_config.org_id}")
+            self.logger.info("%15s %s", "As user:", self.org_config.username)
+            self.logger.info("%15s %s", "In org:", self.org_config.org_id)
         self.logger.info("")
 
     def _retry(self):
@@ -163,7 +160,9 @@ class BaseTask(object):
                     raise
                 if self.options["retry_interval"]:
                     self.logger.warning(
-                        f"Sleeping for {self.options['retry_interval']} seconds before retry..."
+                        "Sleeping for {} seconds before retry...".format(
+                            self.options["retry_interval"]
+                        )
                     )
                     time.sleep(self.options["retry_interval"])
                     if self.options["retry_interval_add"]:
@@ -172,7 +171,7 @@ class BaseTask(object):
                         ]
                 self.options["retries"] -= 1
                 self.logger.warning(
-                    f"Retrying ({self.options['retries']} attempts remaining)"
+                    "Retrying ({} attempts remaining)".format(self.options["retries"])
                 )
 
     def _try(self):
@@ -180,12 +179,6 @@ class BaseTask(object):
 
     def _is_retry_valid(self, e):
         return True
-
-    def _reset_poll(self):
-        self.poll_complete = False
-        self.poll_count = 0
-        self.poll_interval_level = 0
-        self.poll_interval_s = 1
 
     def _poll(self):
         """ poll for a result in a loop """
@@ -245,11 +238,14 @@ class BaseSalesforceTask(BaseTask):
             app = self.project_config.keychain.get_service("connectedapp")
             return app.client_id
         except (ServiceNotValid, ServiceNotConfigured):
-            return f"CumulusCI/{__version__}"
+            return "CumulusCI/{}".format(__version__)
 
     def _run_task(self):
         raise NotImplementedError("Subclasses should provide their own implementation")
 
     def _update_credentials(self):
-        with self.org_config.save_if_changed():
-            self.org_config.refresh_oauth_token(self.project_config.keychain)
+        orig_config = self.org_config.config.copy()
+        self.org_config.refresh_oauth_token(self.project_config.keychain)
+        if self.org_config.config != orig_config:
+            self.logger.info("Org info updated, writing to keychain")
+            self.project_config.keychain.set_org(self.org_config)

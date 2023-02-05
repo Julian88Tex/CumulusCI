@@ -5,73 +5,65 @@ import io
 import os
 import tempfile
 import unittest
-import shutil
-from pathlib import Path
 
-import pytest
 import yaml
 
-from cumulusci.utils import temporary_dir, cd
-from cumulusci.core.config import BaseProjectConfig
+from cumulusci.utils import temporary_dir
 from cumulusci.core.config import ScratchOrgConfig
-from cumulusci.core.config import SfdxOrgConfig
+from cumulusci.core.config import BaseGlobalConfig
+from cumulusci.core.config import BaseProjectConfig
 from cumulusci.core.config import ServiceConfig
-from cumulusci.core.config import UniversalConfig
 from cumulusci.core.exceptions import NotInProject
 from cumulusci.core.exceptions import ProjectConfigNotFound
-from cumulusci.core.exceptions import SfdxOrgException
 from cumulusci.core.exceptions import ScratchOrgException
 from cumulusci.core.exceptions import ServiceNotConfigured
 
 __location__ = os.path.dirname(os.path.realpath(__file__))
 
 
-@mock.patch("pathlib.Path.home")
-class TestUniversalConfig(unittest.TestCase):
+@mock.patch("os.path.expanduser")
+class TestBaseGlobalConfig(unittest.TestCase):
     def setUp(self):
-        self.tempdir_home = Path(tempfile.mkdtemp())
+        self.tempdir_home = tempfile.mkdtemp()
 
-    def tearDown(self):
-        shutil.rmtree(self.tempdir_home)
-
-    def _create_universal_config_local(self, content):
-        global_config_dir = os.path.join(self.tempdir_home, ".cumulusci")
-        os.makedirs(global_config_dir)
-        filename = os.path.join(global_config_dir, UniversalConfig.config_filename)
+    def _create_global_config_local(self, content):
+        self.tempdir_home = tempfile.mkdtemp()
+        global_local_dir = os.path.join(self.tempdir_home, ".cumulusci")
+        os.makedirs(global_local_dir)
+        filename = os.path.join(global_local_dir, BaseGlobalConfig.config_filename)
         self._write_file(filename, content)
 
     def _write_file(self, filename, content):
         with open(filename, "w") as f:
             f.write(content)
 
-    def test_load_universal_config_no_local(self, mock_class):
+    def test_load_global_config_no_local(self, mock_class):
         mock_class.return_value = self.tempdir_home
         # clear cache
-        UniversalConfig.config = None
-        config = UniversalConfig()
+        BaseGlobalConfig.config = None
+        config = BaseGlobalConfig()
         with open(__location__ + "/../../cumulusci.yml", "r") as f_expected_config:
             expected_config = yaml.safe_load(f_expected_config)
         self.assertEqual(config.config, expected_config)
 
-    def test_load_universal_config_empty_local(self, mock_class):
-        self._create_universal_config_local("")
-        # clear cache
-        UniversalConfig.config = None
+    def test_load_global_config_empty_local(self, mock_class):
+        self._create_global_config_local("")
         mock_class.return_value = self.tempdir_home
-        config = UniversalConfig()
+
+        config = BaseGlobalConfig()
         with open(__location__ + "/../../cumulusci.yml", "r") as f_expected_config:
             expected_config = yaml.safe_load(f_expected_config)
         self.assertEqual(config.config, expected_config)
 
-    def test_load_universal_config_with_local(self, mock_class):
+    def test_load_global_config_with_local(self, mock_class):
         local_yaml = "tasks:\n    newtesttask:\n        description: test description"
-        self._create_universal_config_local(local_yaml)
+        self._create_global_config_local(local_yaml)
         mock_class.return_value = self.tempdir_home
 
         # clear cache
-        UniversalConfig.config = None
+        BaseGlobalConfig.config = None
 
-        config = UniversalConfig()
+        config = BaseGlobalConfig()
         with open(__location__ + "/../../cumulusci.yml", "r") as f_expected_config:
             expected_config = yaml.safe_load(f_expected_config)
         expected_config["tasks"]["newtesttask"] = {}
@@ -79,19 +71,8 @@ class TestUniversalConfig(unittest.TestCase):
         self.assertEqual(config.config, expected_config)
 
 
-@mock.patch("pathlib.Path.home")
+@mock.patch("os.path.expanduser")
 class TestBaseProjectConfig(unittest.TestCase):
-    def setUp(self):
-        self.tempdir_home = Path(tempfile.mkdtemp())
-        self.tempdir_project = tempfile.mkdtemp()
-        self.project_name = "TestRepo"
-        self.current_commit = "abcdefg1234567890"
-        self.current_branch = "main"
-
-    def tearDown(self):
-        shutil.rmtree(self.tempdir_home)
-        shutil.rmtree(self.tempdir_project)
-
     def _create_git_config(self):
 
         filename = os.path.join(self.tempdir_project, ".git", "config")
@@ -106,14 +87,14 @@ class TestBaseProjectConfig(unittest.TestCase):
 
         dirname = os.path.join(self.tempdir_project, ".git", "refs", "heads")
         os.makedirs(dirname)
-        filename = os.path.join(dirname, "main")
+        filename = os.path.join(dirname, "master")
         content = self.current_commit
         self._write_file(filename, content)
 
-    def _create_universal_config_local(self, content):
-        global_config_dir = os.path.join(self.tempdir_home, ".cumulusci")
-        os.makedirs(global_config_dir)
-        filename = os.path.join(global_config_dir, UniversalConfig.config_filename)
+    def _create_global_config_local(self, content):
+        global_local_dir = os.path.join(self.tempdir_home, ".cumulusci")
+        os.makedirs(global_local_dir)
+        filename = os.path.join(global_local_dir, BaseGlobalConfig.config_filename)
         self._write_file(filename, content)
 
     def _create_project_config(self):
@@ -139,20 +120,30 @@ class TestBaseProjectConfig(unittest.TestCase):
         with open(filename, "w") as f:
             f.write(content)
 
+    def setUp(self):
+        self.tempdir_home = tempfile.mkdtemp()
+        self.tempdir_project = tempfile.mkdtemp()
+        self.project_name = "TestRepo"
+        self.current_commit = "abcdefg1234567890"
+        self.current_branch = "master"
+
+    def tearDown(self):
+        pass
+
     def test_load_project_config_not_repo(self, mock_class):
         mock_class.return_value = self.tempdir_home
-        with cd(self.tempdir_project):
-            universal_config = UniversalConfig()
-            with self.assertRaises(NotInProject):
-                BaseProjectConfig(universal_config)
+        os.chdir(self.tempdir_project)
+        global_config = BaseGlobalConfig()
+        with self.assertRaises(NotInProject):
+            BaseProjectConfig(global_config)
 
     def test_load_project_config_no_config(self, mock_class):
         mock_class.return_value = self.tempdir_home
         os.mkdir(os.path.join(self.tempdir_project, ".git"))
-        with cd(self.tempdir_project):
-            universal_config = UniversalConfig()
-            with self.assertRaises(ProjectConfigNotFound):
-                BaseProjectConfig(universal_config)
+        os.chdir(self.tempdir_project)
+        global_config = BaseGlobalConfig()
+        with self.assertRaises(ProjectConfigNotFound):
+            BaseProjectConfig(global_config)
 
     def test_load_project_config_empty_config(self, mock_class):
         mock_class.return_value = self.tempdir_home
@@ -163,26 +154,26 @@ class TestBaseProjectConfig(unittest.TestCase):
         content = ""
         self._write_file(filename, content)
 
-        with cd(self.tempdir_project):
-            universal_config = UniversalConfig()
-            config = BaseProjectConfig(universal_config)
-            self.assertEqual(config.config_project, {})
+        os.chdir(self.tempdir_project)
+        global_config = BaseGlobalConfig()
+        config = BaseProjectConfig(global_config)
+        self.assertEqual(config.config_project, {})
 
     def test_load_project_config_valid_config(self, mock_class):
         mock_class.return_value = self.tempdir_home
         os.mkdir(os.path.join(self.tempdir_project, ".git"))
         self._create_git_config()
         local_yaml = "tasks:\n    newtesttask:\n        description: test description"
-        self._create_universal_config_local(local_yaml)
+        self._create_global_config_local(local_yaml)
 
         # create valid project config file
         self._create_project_config()
 
-        with cd(self.tempdir_project):
-            universal_config = UniversalConfig()
-            config = BaseProjectConfig(universal_config)
-            self.assertEqual(config.project__package__name, "TestProject")
-            self.assertEqual(config.project__package__namespace, "testproject")
+        os.chdir(self.tempdir_project)
+        global_config = BaseGlobalConfig()
+        config = BaseProjectConfig(global_config)
+        self.assertEqual(config.project__package__name, "TestProject")
+        self.assertEqual(config.project__package__namespace, "testproject")
 
     def test_repo_owner(self, mock_class):
         mock_class.return_value = self.tempdir_home
@@ -192,10 +183,10 @@ class TestBaseProjectConfig(unittest.TestCase):
         # create valid project config file
         self._create_project_config()
 
-        with cd(self.tempdir_project):
-            universal_config = UniversalConfig()
-            config = BaseProjectConfig(universal_config)
-            self.assertEqual(config.repo_owner, "TestOwner")
+        os.chdir(self.tempdir_project)
+        global_config = BaseGlobalConfig()
+        config = BaseProjectConfig(global_config)
+        self.assertEqual(config.repo_owner, "TestOwner")
 
     def test_repo_branch(self, mock_class):
         mock_class.return_value = self.tempdir_home
@@ -205,10 +196,10 @@ class TestBaseProjectConfig(unittest.TestCase):
         # create valid project config file
         self._create_project_config()
 
-        with cd(self.tempdir_project):
-            universal_config = UniversalConfig()
-            config = BaseProjectConfig(universal_config)
-            self.assertEqual(config.repo_branch, self.current_branch)
+        os.chdir(self.tempdir_project)
+        global_config = BaseGlobalConfig()
+        config = BaseProjectConfig(global_config)
+        self.assertEqual(config.repo_branch, self.current_branch)
 
     def test_repo_commit(self, mock_class):
         mock_class.return_value = self.tempdir_home
@@ -218,10 +209,10 @@ class TestBaseProjectConfig(unittest.TestCase):
         # create valid project config file
         self._create_project_config()
 
-        with cd(self.tempdir_project):
-            universal_config = UniversalConfig()
-            config = BaseProjectConfig(universal_config)
-            self.assertEqual(config.repo_commit, self.current_commit)
+        os.chdir(self.tempdir_project)
+        global_config = BaseGlobalConfig()
+        config = BaseProjectConfig(global_config)
+        self.assertEqual(config.repo_commit, self.current_commit)
 
     def test_load_project_config_local(self, mock_class):
         mock_class.return_value = self.tempdir_home
@@ -235,11 +226,11 @@ class TestBaseProjectConfig(unittest.TestCase):
         content = "project:\n" + "    package:\n" + "        api_version: 45.0\n"
         self._create_project_config_local(content)
 
-        with cd(self.tempdir_project):
-            universal_config = UniversalConfig()
-            config = BaseProjectConfig(universal_config)
-            self.assertNotEqual(config.config_project_local, {})
-            self.assertEqual(config.project__package__api_version, 45.0)
+        os.chdir(self.tempdir_project)
+        global_config = BaseGlobalConfig()
+        config = BaseProjectConfig(global_config)
+        self.assertNotEqual(config.config_project_local, {})
+        self.assertEqual(config.project__package__api_version, 45.0)
 
     def test_load_additional_yaml(self, mock_class):
         mock_class.return_value = self.tempdir_home
@@ -252,11 +243,11 @@ class TestBaseProjectConfig(unittest.TestCase):
         # create local project config file
         content = "project:\n" + "    package:\n" + "        api_version: 45.0\n"
 
-        with cd(self.tempdir_project):
-            universal_config = UniversalConfig()
-            config = BaseProjectConfig(universal_config, additional_yaml=content)
-            self.assertNotEqual(config.config_additional_yaml, {})
-            self.assertEqual(config.project__package__api_version, 45.0)
+        os.chdir(self.tempdir_project)
+        global_config = BaseGlobalConfig()
+        config = BaseProjectConfig(global_config, additional_yaml=content)
+        self.assertNotEqual(config.config_additional_yaml, {})
+        self.assertEqual(config.project__package__api_version, 45.0)
 
 
 @mock.patch("sarge.Command")
@@ -276,7 +267,7 @@ class TestScratchOrgConfig(unittest.TestCase):
             stderr=io.BytesIO(b""), stdout=io.BytesIO(result), returncode=0
         )
 
-        config = ScratchOrgConfig({"username": "test", "created": True}, "test")
+        config = ScratchOrgConfig({"username": "test"}, "test")
         info = config.scratch_info
 
         self.assertEqual(
@@ -291,31 +282,25 @@ class TestScratchOrgConfig(unittest.TestCase):
                 "expiration_date": "1970-01-08",
             },
         )
-        self.assertIs(info, config._sfdx_info)
-        for key in (
-            "access_token",
-            "instance_url",
-            "org_id",
-            "password",
-            "username",
-        ):
+        self.assertIs(info, config._scratch_info)
+        for key in ("access_token", "instance_url", "org_id", "password", "username"):
             assert key in config.config
-        self.assertTrue(config._sfdx_info_date)
+        self.assertTrue(config._scratch_info_date)
 
     def test_scratch_info_memoized(self, Command):
-        config = ScratchOrgConfig({"username": "test", "created": True}, "test")
-        config._sfdx_info = _marker = object()
+        config = ScratchOrgConfig({"username": "test"}, "test")
+        config._scratch_info = _marker = object()
         info = config.scratch_info
         self.assertIs(info, _marker)
 
-    def test_sfdx_info_non_json_response(self, Command):
+    def test_scratch_info_non_json_response(self, Command):
         Command.return_value = mock.Mock(
             stderr=io.BytesIO(b""), stdout=io.BytesIO(b"<html></html>"), returncode=0
         )
 
-        config = SfdxOrgConfig({"username": "test", "created": True}, "test")
-        with self.assertRaises(SfdxOrgException):
-            config.sfdx_info
+        config = ScratchOrgConfig({"username": "test"}, "test")
+        with self.assertRaises(ScratchOrgException):
+            config.scratch_info
 
     def test_scratch_info_command_error(self, Command):
         Command.return_value = mock.Mock(
@@ -323,12 +308,15 @@ class TestScratchOrgConfig(unittest.TestCase):
         )
 
         config = ScratchOrgConfig(
-            {"username": "test", "email_address": "test@example.com", "created": True},
-            "test",
+            {"username": "test", "email_address": "test@example.com"}, "test"
         )
 
-        with pytest.raises(SfdxOrgException, match="error"):
+        try:
             config.scratch_info
+        except ScratchOrgException as err:
+            self.assertEqual(str(err), "\nstderr:\nerror\nstdout:\nout")
+        else:
+            self.fail("Expected ScratchOrgException")
 
     def test_scratch_info_username_not_found(self, Command):
         Command.return_value = mock.Mock(
@@ -345,102 +333,45 @@ class TestScratchOrgConfig(unittest.TestCase):
             with self.assertRaises(ScratchOrgException):
                 config.scratch_info
 
+    def test_scratch_info_password_from_config(self, Command):
+        result = b"""{
+    "result": {
+        "instanceUrl": "url",
+        "accessToken": "access!token",
+        "username": "username",
+        "createdDate": "1970-01-01T00:00:00Z",
+        "expirationDate": "1970-01-08"
+    }
+}"""
+        Command.return_value = mock.Mock(
+            stderr=io.BytesIO(b""), stdout=io.BytesIO(result), returncode=0
+        )
+
+        config = ScratchOrgConfig({"username": "test", "password": "password"}, "test")
+        info = config.scratch_info
+
+        self.assertEqual(info["password"], "password")
+
     def test_access_token(self, Command):
         config = ScratchOrgConfig({}, "test")
         _marker = object()
-        config._sfdx_info = {"access_token": _marker}
+        config._scratch_info = {"access_token": _marker}
         self.assertIs(config.access_token, _marker)
-
-    def test_get_access_token(self, Command):
-        """Verify that get_access_token calls out to sfdx"""
-        sf = mock.Mock()
-        sf.query_all.return_value = {"records": [{"Username": "whatever@example.com"}]}
-
-        sfdx_response = mock.Mock(returncode=0)
-        sfdx_response.stdout_text.read.return_value = (
-            '{"result": {"accessToken": "the-token"}}'
-        )
-        sfdx = mock.Mock(return_value=sfdx_response)
-
-        config = ScratchOrgConfig({}, "test")
-        with mock.patch("cumulusci.core.config.OrgConfig.salesforce_client", sf):
-            with mock.patch("cumulusci.core.config.sfdx_org_config.sfdx", sfdx):
-                access_token = config.get_access_token(alias="dadvisor")
-                sfdx.assert_called_once_with(
-                    "force:org:display --targetusername=whatever@example.com --json"
-                )
-                assert access_token == "the-token"
-
-    def test_get_access_token__default(self, Command):
-        """Verify that with no args, get_access_token returns the default token"""
-        config = ScratchOrgConfig({}, "test")
-        _marker = object()
-        config._sfdx_info = {"access_token": _marker}
-        access_token = config.get_access_token()
-        assert access_token is _marker
-
-    def test_get_access_token__unknown_user(self, Command):
-        sf = mock.Mock()
-        sf.query_all.return_value = {"records": []}
-
-        config = ScratchOrgConfig({}, "test")
-
-        with mock.patch("cumulusci.core.config.OrgConfig.salesforce_client", sf):
-            with pytest.raises(
-                SfdxOrgException,
-                match="Couldn't find a username for the specified user",
-            ):
-                config.get_access_token(alias="dadvisor")
-
-    def test_get_access_token__multiple_users(self, Command):
-        sf = mock.Mock()
-        sf.query_all.return_value = {
-            "records": [
-                {"Username": "test1@example.com"},
-                {"Username": "test2@example.com"},
-            ]
-        }
-
-        config = ScratchOrgConfig({}, "test")
-
-        with mock.patch("cumulusci.core.config.OrgConfig.salesforce_client", sf):
-            with pytest.raises(
-                SfdxOrgException,
-                match="More than one user matched the search critiera.",
-            ):
-                config.get_access_token(alias="dadvisor")
-
-    def test_get_access_token__no_access_token(self, Command):
-        sf = mock.Mock()
-        sf.query_all.return_value = {"records": [{"Username": "whatever@example.com"}]}
-
-        sfdx_response = mock.Mock(returncode=1)
-        sfdx_response.stdout_text.read.return_value = '{"message": "blah blah..."}'
-        sfdx = mock.Mock(return_value=sfdx_response)
-
-        config = ScratchOrgConfig({}, "test")
-        with mock.patch("cumulusci.core.config.OrgConfig.salesforce_client", sf):
-            with mock.patch("cumulusci.core.config.sfdx_org_config.sfdx", sfdx):
-                exception = (
-                    "Unable to find access token for whatever@example.com\nblah blah..."
-                )
-                with pytest.raises(SfdxOrgException, match=exception):
-                    config.get_access_token(alias="dadvisor")
 
     def test_instance_url(self, Command):
         config = ScratchOrgConfig({}, "test")
         _marker = object()
-        config._sfdx_info = {"instance_url": _marker}
+        config._scratch_info = {"instance_url": _marker}
         self.assertIs(config.instance_url, _marker)
 
     def test_org_id_from_config(self, Command):
         config = ScratchOrgConfig({"org_id": "test"}, "test")
         self.assertEqual(config.org_id, "test")
 
-    def test_org_id_from_sfdx_info(self, Command):
+    def test_org_id_from_scratch_info(self, Command):
         config = ScratchOrgConfig({}, "test")
         _marker = object()
-        config._sfdx_info = {"org_id": _marker}
+        config._scratch_info = {"org_id": _marker}
         self.assertIs(config.org_id, _marker)
 
     def test_user_id_from_config(self, Command):
@@ -452,27 +383,27 @@ class TestScratchOrgConfig(unittest.TestCase):
         sf.query_all.return_value = {"records": [{"Id": "test"}]}
 
         config = ScratchOrgConfig({"username": "test_username"}, "test")
-        config._sfdx_info = {
+        config._scratch_info = {
             "instance_url": "test_instance",
             "access_token": "token",
         }
         with mock.patch("cumulusci.core.config.OrgConfig.salesforce_client", sf):
             self.assertEqual(config.user_id, "test")
 
-    def test_username_from_sfdx_info(self, Command):
+    def test_username_from_scratch_info(self, Command):
         config = ScratchOrgConfig({}, "test")
         _marker = object()
-        config._sfdx_info = {"username": _marker}
+        config._scratch_info = {"username": _marker}
         self.assertIs(config.username, _marker)
 
     def test_password_from_config(self, Command):
         config = ScratchOrgConfig({"password": "test"}, "test")
         self.assertEqual(config.password, "test")
 
-    def test_password_from_sfdx_info(self, Command):
+    def test_password_from_scratch_info(self, Command):
         config = ScratchOrgConfig({}, "test")
         _marker = object()
-        config._sfdx_info = {"password": _marker}
+        config._scratch_info = {"password": _marker}
         self.assertIs(config.password, _marker)
 
     def test_email_address_from_config(self, Command):
@@ -618,8 +549,7 @@ class TestScratchOrgConfig(unittest.TestCase):
 
     def test_create_org_no_config_file(self, Command):
         config = ScratchOrgConfig({}, "test")
-        with pytest.raises(ScratchOrgException, match="missing a config_file"):
-            config.create_org()
+        self.assertEqual(config.create_org(), None)
         Command.assert_not_called()
 
     def test_create_org_command_error(self, Command):
@@ -677,13 +607,9 @@ class TestScratchOrgConfig(unittest.TestCase):
             stdout=io.BytesIO(b"info"), stderr=io.BytesIO(b""), returncode=0
         )
 
-        config = ScratchOrgConfig(
-            {"username": "test", "created": True, "instance_url": "https://blah"},
-            "test",
-        )
+        config = ScratchOrgConfig({"username": "test", "created": True}, "test")
         config.delete_org()
 
-        self.assertFalse(config.config.get("instance_url"))
         self.assertFalse(config.config["created"])
         self.assertIs(config.config["username"], None)
 
@@ -719,7 +645,7 @@ class TestScratchOrgConfig(unittest.TestCase):
         )
 
         config = ScratchOrgConfig({"username": "test"}, "test")
-        with self.assertRaises(SfdxOrgException):
+        with self.assertRaises(ScratchOrgException):
             config.force_refresh_oauth_token()
 
     def test_refresh_oauth_token(self, Command):
@@ -737,29 +663,31 @@ class TestScratchOrgConfig(unittest.TestCase):
             stdout=io.BytesIO(result), stderr=io.BytesIO(b""), returncode=0
         )
 
-        config = ScratchOrgConfig({"username": "test", "created": True}, "test")
-        config._sfdx_info = {}
-        config._sfdx_info_date = datetime.now() - timedelta(days=1)
+        config = ScratchOrgConfig({"username": "test"}, "test")
+        config._scratch_info = {}
+        config._scratch_info_date = datetime.now() - timedelta(days=1)
         config.force_refresh_oauth_token = mock.Mock()
         config._load_orginfo = mock.Mock()
 
         config.refresh_oauth_token(keychain=None)
 
         config.force_refresh_oauth_token.assert_called_once()
-        self.assertTrue(config._sfdx_info)
+        self.assertTrue(config._scratch_info)
 
     def test_choose_devhub(self, Command):
         mock_keychain = mock.Mock()
         mock_keychain.get_service.return_value = ServiceConfig(
             {"username": "fake@fake.devhub"}
         )
-        config = ScratchOrgConfig({}, "test", mock_keychain)
+        config = ScratchOrgConfig({}, "test")
+        config.keychain = mock_keychain
 
         assert config._choose_devhub() == "fake@fake.devhub"
 
     def test_choose_devhub__service_not_configured(self, Command):
         mock_keychain = mock.Mock()
         mock_keychain.get_service.side_effect = ServiceNotConfigured
-        config = ScratchOrgConfig({}, "test", mock_keychain)
+        config = ScratchOrgConfig({}, "test")
+        config.keychain = mock_keychain
 
         assert config._choose_devhub() is None
